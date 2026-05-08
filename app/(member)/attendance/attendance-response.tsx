@@ -1,0 +1,251 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { CheckCircle2, XCircle, Pencil } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import type { Member, Presentation, Session } from '@/lib/types'
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토']
+
+function formatDateKR(d: string) {
+  const [y, m, day] = d.split('-').map(Number)
+  if (!y) return d
+  const dt = new Date(Date.UTC(y, m - 1, day))
+  return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
+}
+
+type PreAttendance = {
+  id: string
+  session_id: string
+  member_id: string
+  status: 'attending' | 'absent'
+  reason: string | null
+  responded_at: string
+}
+
+export function AttendanceResponse({
+  me,
+  session,
+  presentations,
+  members
+}: {
+  me: Member
+  session: Session
+  presentations: Presentation[]
+  members: Member[]
+}) {
+  const [pre, setPre] = useState<PreAttendance | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [status, setStatus] = useState<'attending' | 'absent'>('attending')
+  const [reason, setReason] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/pre-attendance?session_id=${session.id}`)
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled) return
+        const existing = (j.pre_attendance as PreAttendance | null) ?? null
+        setPre(existing)
+        if (existing) {
+          setStatus(existing.status)
+          setReason(existing.reason ?? '')
+          setEditing(false)
+        } else {
+          setEditing(true)
+        }
+        setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session.id])
+
+  const isPresenter = presentations.some(p => p.presenter_id === me.id)
+  const memberName = (id: string) => members.find(m => m.id === id)?.name ?? '(알수없음)'
+
+  const submit = async () => {
+    setError('')
+    if (status === 'absent' && !reason.trim()) {
+      setError('불참 사유를 입력해주세요.')
+      return
+    }
+    setPending(true)
+    const r = await fetch('/api/pre-attendance', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        session_id: session.id,
+        status,
+        reason: status === 'absent' ? reason : null
+      })
+    })
+    setPending(false)
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      setError(j.error || '저장 실패')
+      return
+    }
+    setPre({
+      id: pre?.id ?? 'temp',
+      session_id: session.id,
+      member_id: me.id,
+      status,
+      reason: status === 'absent' ? reason : null,
+      responded_at: new Date().toISOString()
+    })
+    setEditing(false)
+  }
+
+  if (!loaded) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-6 text-center text-gray-500">
+        불러오는 중...
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* 다음 회차 카드 */}
+      <section className="rounded-2xl bg-green-50 p-5">
+        <div className="text-xs font-bold text-green-700">다음 스터디</div>
+        <div className="mt-1 text-2xl font-bold text-green-900">{formatDateKR(session.date)}</div>
+        <div className="mt-1 text-sm text-green-800">{session.session_number}회차</div>
+        {isPresenter && (
+          <div className="mt-3 inline-block rounded-full bg-amber-200 px-3 py-1 text-sm font-semibold text-amber-900">
+            ⭐ 발표 예정
+          </div>
+        )}
+        {presentations.length > 0 && (
+          <div className="mt-4 space-y-1.5 border-t border-green-200 pt-3 text-sm text-green-900">
+            <div className="text-xs font-semibold uppercase tracking-wide text-green-700">
+              발표 ({presentations.length}건)
+            </div>
+            {presentations.map(p => (
+              <div key={p.id}>
+                <span className="font-semibold">{p.slot}.</span>{' '}
+                {p.special_label
+                  ? p.special_label
+                  : p.presenter_id
+                    ? memberName(p.presenter_id)
+                    : '🟢 빈 슬롯'}
+                {p.company_name ? ` — ${p.company_name}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 응답 영역 */}
+      <section>
+        {!editing && pre ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs text-gray-500">{me.name}님의 응답</div>
+                <div className="mt-1 flex items-center gap-2">
+                  {pre.status === 'attending' ? (
+                    <>
+                      <CheckCircle2 className="h-6 w-6 text-green-600" />
+                      <span className="text-xl font-bold text-green-900">참석</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-6 w-6 text-red-600" />
+                      <span className="text-xl font-bold text-red-900">불참</span>
+                    </>
+                  )}
+                </div>
+                {pre.status === 'absent' && pre.reason && (
+                  <div className="mt-2 text-sm text-gray-700">사유: {pre.reason}</div>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEditing(true)
+                  setError('')
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                변경
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5">
+            <div className="text-base font-bold text-gray-900">참석 가능하신가요?</div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setStatus('attending')}
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 py-5 transition ${
+                  status === 'attending'
+                    ? 'border-green-600 bg-green-50 text-green-900'
+                    : 'border-gray-200 bg-white text-gray-700'
+                }`}
+              >
+                <CheckCircle2 className="h-8 w-8" />
+                <span className="text-lg font-bold">참석</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatus('absent')}
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 py-5 transition ${
+                  status === 'absent'
+                    ? 'border-red-600 bg-red-50 text-red-900'
+                    : 'border-gray-200 bg-white text-gray-700'
+                }`}
+              >
+                <XCircle className="h-8 w-8" />
+                <span className="text-lg font-bold">불참</span>
+              </button>
+            </div>
+
+            {status === 'absent' && (
+              <div>
+                <Label htmlFor="reason">불참 사유</Label>
+                <textarea
+                  id="reason"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="예: 출장으로 참석 어렵습니다"
+                  rows={3}
+                  className="mt-1 w-full rounded-xl border border-gray-300 bg-white p-4 text-base outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
+                />
+              </div>
+            )}
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <div className="flex gap-2">
+              <Button onClick={submit} disabled={pending} className="flex-1">
+                {pending ? '저장 중...' : '저장'}
+              </Button>
+              {pre && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setEditing(false)
+                    setStatus(pre.status)
+                    setReason(pre.reason ?? '')
+                    setError('')
+                  }}
+                  className="flex-1"
+                >
+                  취소
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}

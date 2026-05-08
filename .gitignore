@@ -27,9 +27,14 @@ yarn-error.log*
 
 # local env files
 .env*.local
+!.env.local.example
 
 # vercel
 .vercel
+
+# claude (local-only settings)
+.claude/settings.local.json
+.claude/jongatu-claude-backup/
 
 # typescript
 *.tsbuildinfo
