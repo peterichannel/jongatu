@@ -42,13 +42,16 @@ export async function POST(req: Request) {
 
   const { data: session, error: sErr } = await supabase
     .from('sessions')
-    .select('id, date, type, quarter_id')
+    .select('id, date, type, quarter_id, is_test')
     .eq('id', session_id)
     .maybeSingle()
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 })
   if (!session) return NextResponse.json({ error: '회차를 찾을 수 없습니다' }, { status: 404 })
   if (session.type !== 'normal') {
     return NextResponse.json({ error: '정상 회차만 출석 체크 가능합니다' }, { status: 400 })
+  }
+  if (session.is_test && !me.is_admin) {
+    return NextResponse.json({ error: '테스트 회차는 운영진만 체크 가능합니다' }, { status: 403 })
   }
 
   const now = seoulNow()

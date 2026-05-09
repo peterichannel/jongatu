@@ -70,6 +70,9 @@ export default async function HomePage() {
   } | null = null
   let activeMemberCount = 0
 
+  // 가드 분기 위해 me 를 먼저 조회 (비운영진은 is_test 회차 숨김)
+  const me = await getAuthedMember()
+
   try {
     const supabase = supabaseAdmin()
     const { data, error } = await supabase
@@ -89,22 +92,25 @@ export default async function HomePage() {
     if (q) {
       const today = todayISOInSeoul()
       // 오늘 회차
-      const { data: ts } = await supabase
+      let todayQuery = supabase
         .from('sessions')
         .select('*')
         .eq('quarter_id', q.id)
         .eq('type', 'normal')
         .eq('date', today)
-        .maybeSingle()
+      if (!me?.is_admin) todayQuery = todayQuery.eq('is_test', false)
+      const { data: ts } = await todayQuery.maybeSingle()
       todaySession = ts ?? null
 
       // 다음 회차 (오늘 포함 이후)
-      const { data: ns } = await supabase
+      let nextQuery = supabase
         .from('sessions')
         .select('*')
         .eq('quarter_id', q.id)
         .eq('type', 'normal')
         .gte('date', today)
+      if (!me?.is_admin) nextQuery = nextQuery.eq('is_test', false)
+      const { data: ns } = await nextQuery
         .order('date', { ascending: true })
         .limit(1)
         .maybeSingle()
@@ -113,8 +119,6 @@ export default async function HomePage() {
   } catch (e) {
     envErrorMessage = e instanceof Error ? e.message : '데이터 로드 실패'
   }
-
-  const me = envErrorMessage ? null : await getAuthedMember()
 
   if (me && !envErrorMessage) {
     try {

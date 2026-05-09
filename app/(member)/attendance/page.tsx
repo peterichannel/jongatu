@@ -46,12 +46,14 @@ export default async function AttendancePage() {
       .maybeSingle()
 
     if (q) {
-      const { data: ns } = await supabase
+      let nsQuery = supabase
         .from('sessions')
         .select('*')
         .eq('quarter_id', q.id)
         .eq('type', 'normal')
         .gte('date', todayISO())
+      if (!me.is_admin) nsQuery = nsQuery.eq('is_test', false)
+      const { data: ns } = await nsQuery
         .order('date', { ascending: true })
         .limit(1)
         .maybeSingle()

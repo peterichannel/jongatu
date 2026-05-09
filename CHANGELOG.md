@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 2026-05-09 (저녁)
+
+### 테스트 회차 인프라 (is_test 가드)
+- 운영진끼리 자가 체크인/사전참석/출결 확정 흐름을 안전하게 검증할 수 있는 별도 회차
+- **마이그레이션 0011**:
+  - `sessions.is_test BOOLEAN NOT NULL DEFAULT false` 추가 (기존 회차 모두 false)
+  - `confirm_session_attendance` RPC 갱신 — `is_test=true` 회차는 페널티 트랜잭션을 생성하지 않고 attendances 확정만 처리 (`total_penalties: 0` 반환). 테스트 데이터가 진짜 보증금/운영비에 영향을 주지 않음
+- **멤버측 가드** — 비운영진(`is_admin=false`)에게는 `is_test=true` 회차가 모두 숨겨짐:
+  - `app/(member)/page.tsx` (오늘/다음 스터디 카드)
+  - `app/(member)/attendance/page.tsx` (사전참석)
+  - `app/(member)/schedule/page.tsx` (분기 일정)
+  - `app/api/attendance/check-in/route.ts` (자가 체크인 — 비운영진 403)
+  - `app/api/pre-attendance/route.ts` (사전참석 응답 — 비운영진 403)
+  - 운영진은 모든 곳에서 그대로 보이고 자가 체크인까지 가능
+- **스크립트**:
+  - `scripts/create-test-session.ts` — 활성 분기 + 오늘 날짜 + `session_number=9999` + `is_test=true, type='normal'` 로 INSERT (이미 #9999 있으면 오늘 날짜로 갱신)
+  - `scripts/delete-test-sessions.ts` — `is_test=true` 회차 + 보수적으로 매핑된 deposit_transactions 정리 (CASCADE 로 attendances/pre_attendances/presentations 동반 삭제)
+- 운영자 UI 토글은 미추가 — 진짜 필요해질 때 추가
+- `Session` 타입에 `is_test: boolean` 추가
+
 ## 2026-05-09 (오후)
 
 ### 마이그레이션 0010 - quarters.operating_fee

@@ -35,6 +35,7 @@ export type Session = {
   date: string
   type: 'normal' | 'rest' | 'dinner' | 'social' | 'event'
   note: string | null
+  is_test: boolean
 }
 
 export type Presentation = {

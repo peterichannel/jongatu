@@ -53,13 +53,16 @@ export async function POST(req: Request) {
 
   const { data: session, error: sErr } = await supabase
     .from('sessions')
-    .select('id, date, type')
+    .select('id, date, type, is_test')
     .eq('id', session_id)
     .maybeSingle()
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 })
   if (!session) return NextResponse.json({ error: 'session not found' }, { status: 404 })
   if (session.type !== 'normal') {
     return NextResponse.json({ error: '정상 회차가 아닙니다' }, { status: 400 })
+  }
+  if (session.is_test && !me.is_admin) {
+    return NextResponse.json({ error: '테스트 회차는 운영진만 응답 가능합니다' }, { status: 403 })
   }
   if (session.date < todayISO()) {
     return NextResponse.json({ error: '이미 지난 회차입니다' }, { status: 400 })

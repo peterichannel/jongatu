@@ -58,11 +58,12 @@ export default async function SchedulePage({
       null
 
     if (targetQuarter) {
-      const { data: ses, error: sErr } = await supabase
+      let sesQuery = supabase
         .from('sessions')
         .select('*')
         .eq('quarter_id', targetQuarter.id)
-        .order('session_number', { ascending: true })
+      if (!me.is_admin) sesQuery = sesQuery.eq('is_test', false)
+      const { data: ses, error: sErr } = await sesQuery.order('session_number', { ascending: true })
       if (sErr) throw new Error(sErr.message)
       sessions = ses ?? []
 
