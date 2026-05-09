@@ -37,3 +37,9 @@ export function seoulMinutesOfDay(d: Date = new Date()): number {
   const { hour, minute } = seoulHourMinute(d)
   return hour * 60 + minute
 }
+
+// 'YYYY-MM-DD' 에 days를 더한 KST 날짜 ISO. days 가 음수면 빼는 효과.
+export function addDaysSeoulISO(date: string, days: number): string {
+  const t = new Date(`${date}T00:00:00+09:00`).getTime() + days * 24 * 3600_000
+  return seoulDateISO(new Date(t))
+}

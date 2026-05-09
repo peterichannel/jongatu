@@ -9,9 +9,12 @@ import {
 } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
+import { addDaysSeoulISO, seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
 import { MemberAuthFlow } from '@/components/MemberAuthFlow'
+import { CopyShareButtons } from '@/components/CopyShareButtons'
 import type { Member, Presentation, Session } from '@/lib/types'
+
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL ?? ''
 
 export const revalidate = 0
 
@@ -350,12 +353,76 @@ function SignedInView({
             <ArrowRight className="h-5 w-5" />
           </Link>
 
-          {/* TODO(다음 커밋): 사전참석 안내 / 미응답자 재안내 / 출석 안내 / 출결 확정 알림 */}
+          {/* 사전참석 안내 메시지 — D-2 ~ D-1 */}
+          {nextSession && daysToNext !== null && (daysToNext === 1 || daysToNext === 2) && (
+            <PreAttendanceNoticeCard
+              session={nextSession}
+              presentations={nextPresentations}
+              allMembers={allMembers}
+              daysToNext={daysToNext}
+            />
+          )}
+
+          {/* TODO(다음 커밋): 미응답자 재안내 / 출석 안내 / 출결 확정 알림 */}
         </>
       )}
 
       {/* TODO(다음 커밋): 내 정보 미리보기 카드 */}
     </>
+  )
+}
+
+function PreAttendanceNoticeCard({
+  session,
+  presentations,
+  allMembers,
+  daysToNext
+}: {
+  session: Session
+  presentations: Presentation[]
+  allMembers: Member[]
+  daysToNext: number
+}) {
+  const memberName = (id: string | null | undefined) =>
+    id ? allMembers.find(m => m.id === id)?.name ?? '(이전 멤버)' : ''
+  const lines = presentations
+    .filter(p => p.presenter_id || p.special_label)
+    .map(p =>
+      p.special_label
+        ? `- ${p.special_label}`
+        : `- ${memberName(p.presenter_id)}님${p.company_name ? ` - ${p.company_name}` : ''}`
+    )
+  const presenterBlock = lines.length > 0 ? lines.join('\n') : '- (발표자 미정)'
+
+  // 마감일 = 회차 전날 (D-1) 자정
+  const deadlineISO = addDaysSeoulISO(session.date, -1)
+  const urlLine = APP_URL ? `\n👉 ${APP_URL}/attendance` : ''
+
+  const message = [
+    '종가투 형님들 안녕하세요!',
+    '',
+    `${formatDateKR(session.date)} 스터디 사전참석 부탁드립니다.`,
+    '',
+    '📢 발표자',
+    presenterBlock,
+    '',
+    `답변 마감: ${formatDateKR(deadlineISO)} 자정${urlLine}`
+  ].join('\n')
+
+  return (
+    <section className="mb-3 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-bold text-gray-900">📢 사전참석 안내 메시지</div>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+          D-{daysToNext}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-gray-600">단톡방에 복사해 보내주세요.</p>
+      <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-gray-50 p-3 text-sm leading-relaxed text-gray-800">
+{message}
+      </pre>
+      <CopyShareButtons message={message} shareTitle="종가투 사전참석 안내" />
+    </section>
   )
 }
 
