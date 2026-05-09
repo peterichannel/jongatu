@@ -2,14 +2,11 @@ import Link from 'next/link'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
 import { Button } from '@/components/ui/button'
+import { seoulDateISO } from '@/lib/seoul-time'
 import type { Member, Presentation, Session } from '@/lib/types'
 import { EvaluationForm } from './evaluation-form'
 
 export const revalidate = 0
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export default async function EvaluationPage() {
   const me = await getAuthedMember()
@@ -47,7 +44,7 @@ export default async function EvaluationPage() {
     if (qErr) throw new Error(qErr.message)
 
     if (q) {
-      const today = todayISO()
+      const today = seoulDateISO()
       const { data: recents, error: sErr } = await supabase
         .from('sessions')
         .select('*, presentations(id)')

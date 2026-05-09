@@ -127,13 +127,33 @@ export function EvaluationForm({
       const map: Record<string, Evaluation> = {}
       for (const e of (eJson.evaluations as Evaluation[]) ?? []) map[e.presentation_id] = e
       setEvals(map)
-      setListener(lJson.feedback ?? null)
+      const lf = lJson.feedback ?? null
+      setListener(lf)
+
+      // 저장된 진행 상태에 맞춰 step 복원
+      // - 평가 대상 0건: listener 저장됐으면 done(1), 아니면 listener step(0)
+      // - 미완료 발표자가 있으면 그 인덱스로
+      // - 발표자 모두 완료 + listener 저장: done
+      // - 발표자 모두 완료 + listener 미저장: listener step
+      const N = evaluatable.length
+      if (N === 0) {
+        setStep(lf ? 1 : 0)
+      } else {
+        const firstUnfinished = evaluatable.findIndex(p => !map[p.id])
+        if (firstUnfinished >= 0) {
+          setStep(firstUnfinished)
+        } else if (lf) {
+          setStep(N + 1)
+        } else {
+          setStep(N)
+        }
+      }
       setLoaded(true)
     })
     return () => {
       cancelled = true
     }
-  }, [session.id])
+  }, [session.id, evaluatable])
 
   const memberName = (id: string) => members.find(m => m.id === id)?.name ?? '(알수없음)'
   const totalSteps = evaluatable.length + 1 // last step = listener feedback

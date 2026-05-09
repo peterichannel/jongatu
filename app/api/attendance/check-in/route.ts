@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
+import { seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
@@ -8,20 +9,6 @@ export const runtime = 'nodejs'
 const DEFAULT_LATE_HOUR = 19
 const DEFAULT_LATE_MINUTE = 20
 const DEFAULT_LATE_MINUTES = DEFAULT_LATE_HOUR * 60 + DEFAULT_LATE_MINUTE
-
-function seoulNow() {
-  // Vercel/대부분의 서버는 UTC. Asia/Seoul = UTC+9
-  const now = new Date()
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
-  return new Date(utcMs + 9 * 3600_000)
-}
-
-function dateOnly(d: Date) {
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
 
 export async function POST(req: Request) {
   const me = await getAuthedMember()
@@ -55,8 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '테스트 회차는 운영진만 체크 가능합니다' }, { status: 403 })
   }
 
-  const now = seoulNow()
-  const today = dateOnly(now)
+  const today = seoulDateISO()
   if (session.date !== today) {
     return NextResponse.json(
       { error: `오늘(${today}) 회차가 아닙니다 (회차일: ${session.date})` },
@@ -75,13 +61,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '이미 출결이 확정된 회차입니다' }, { status: 400 })
   }
 
-  const hour = now.getHours()
-  const minute = now.getMinutes()
+  const nowMinutes = seoulMinutesOfDay()
   const lateThresholdMinutes =
     typeof session.late_after_minutes === 'number' && session.late_after_minutes >= 0
       ? session.late_after_minutes
       : DEFAULT_LATE_MINUTES
-  const isLate = hour * 60 + minute >= lateThresholdMinutes
+  const isLate = nowMinutes >= lateThresholdMinutes
   const status: 'present' | 'late' = isLate ? 'late' : 'present'
 
   // 기존 행이 있으면 status, checked_in_at 갱신 (운영자가 미리 입력했더라도 자가 체크 우선)
@@ -96,7 +81,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: '이미 확정된 출결은 변경할 수 없습니다' }, { status: 400 })
   }
 
-  const checkedInAt = now.toISOString()
+  // ISO string은 UTC 기준 절대 시각이라 환경 무관하게 정확. 표시는 toLocaleTimeString(timeZone:'Asia/Seoul')에서 처리
+  const checkedInAt = new Date().toISOString()
   if (existing) {
     const { error } = await supabase
       .from('attendances')

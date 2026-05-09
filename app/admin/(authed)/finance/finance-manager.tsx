@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { Member, Quarter } from '@/lib/types'
 import { formatKRW } from '@/lib/utils'
+import { seoulDateISO } from '@/lib/seoul-time'
 
 type Deposit = {
   id: string
@@ -385,7 +386,7 @@ function FundForm({
     transaction ? Math.abs(transaction.amount).toString() : ''
   )
   const [description, setDescription] = useState(transaction?.description ?? '')
-  const [date, setDate] = useState(transaction?.date ?? new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(transaction?.date ?? seoulDateISO())
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
 

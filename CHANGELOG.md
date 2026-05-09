@@ -2,6 +2,49 @@
 
 ## 2026-05-09 (저녁)
 
+### 출결 페이지 (`/attendance`) 재구성
+- 기존엔 "다음 회차 1개"만 다뤘는데, 오늘 회차와 다음(미래) 회차를 별도 카드로 분리:
+  - **오늘 회차**: 자가 체크인 영역(amber 카드, 강조) + 사전참석 응답
+    - 사전참석을 이미 응답한 경우엔 한 줄 요약(✓ 참석 / ✗ 불참 + 변경) 으로 축소 — 출석 체크가 메인
+    - 사전참석에서 `absent`로 응답했어도 자가 체크인 가능 + 안내 문구("불참 응답이지만 출석 체크 시 출석/지각으로 기록되며 결석 페널티는 부과되지 않습니다")
+  - **다음 회차** (미래): 사전참석 응답만(green 카드)
+- 발표 슬롯 정보는 두 카드 각각에 표시
+- `attendance-response.tsx` `SessionPanel` / `PreAttendanceArea` / `CheckedInStatus` 서브컴포넌트로 재구성
+
+### Asia/Seoul 시각 처리 통합 (`lib/seoul-time.ts`)
+- 기존 `seoulNow()` / `todayISOInSeoul()` 헬퍼들이 `getTimezoneOffset()` 기반이라 서버/실행 환경에 따라 결과가 9시간 어긋날 위험. dev 모드(KST 로컬) 테스트 시 자가 체크인의 출석/지각 판정이 잘못 나올 수 있는 문제
+- **`lib/seoul-time.ts`** 신규 — `Intl.DateTimeFormat({ timeZone: 'Asia/Seoul' })` 기반의 환경 무관한 헬퍼 3종: `seoulDateISO()`, `seoulHourMinute()`, `seoulMinutesOfDay()`
+- 적용 대체:
+  - `app/api/attendance/check-in/route.ts` — `seoulNow()` 제거, `seoulDateISO()` + `seoulMinutesOfDay()` 사용. `checked_in_at`은 그대로 UTC ISO (표시 단계에서 KST 변환)
+  - `app/api/pre-attendance/route.ts` — `seoulDateISO()`
+  - `app/(member)/page.tsx`, `app/(member)/attendance/page.tsx`, `app/(member)/evaluation/page.tsx`, `app/(member)/schedule/schedule-view.tsx`, `app/admin/(authed)/page.tsx` — 자체 `todayISO*` 제거 후 통합 헬퍼로 교체
+  - `lib/utils.ts` `todayISO` — KST `Intl.DateTimeFormat` 기반으로 재작성 (이름 유지, 기존 호출자 영향 없음)
+  - `app/admin/(authed)/finance/finance-manager.tsx`, `app/api/admin/members/route.ts` — 폼 초기 날짜를 KST 기준으로
+  - `app/(member)/me/transaction-list.tsx` `formatShort` — `timeZone: 'Asia/Seoul'` 명시
+  - `scripts/create-test-session.ts` — 동일
+
+### 내정보 페이지 (`/me`) 개편
+- **운영자 메뉴 카드** 추가 — 운영진(`is_admin=true`)에게 홈과 동일한 "관리자 메뉴" 진입 카드 노출 (`/admin`)
+- **분기 선택** — `?quarter=...` searchParam 기반. `QuarterSelector`(client) 추가, 일정 페이지와 동일한 패턴. 기본값은 활성 분기, 그 외 분기 선택 시 보증금/출석/페널티 프리뷰가 해당 분기 기준으로 재조회
+- **출석률** — `(출석 + 지각) / 체크된 회차 × 100` 카드 추가. 정상 회차 수와 체크 횟수도 함께 표기 (`is_test=true` 회차는 정상 회차에서 제외)
+- 하단의 "발표 평가 결과는 분기 종료 후..." 안내 문구 제거
+
+### UX 개선 3종 (이슈 1/2/3)
+- **평가 페이지 진행 상태 복원** (`evaluation-form.tsx`) — 데이터 로드 후 `step` 자동 계산. 발표자 모두 평가 + 청취자 피드백 저장 시 done 화면, 일부만 저장 시 미완료 첫 발표자, 청취자만 미작성 시 청취자 단계로 이동. (이전엔 항상 첫 발표자부터 다시 시작)
+- **내정보 페이지 페널티 프리뷰** (`me/page.tsx`) — 미확정 attendances의 late/absent를 모아 "확정 대기 N건 + 예상 추가 차감 + 확정 후 예상 잔액" 카드 추가. 자가 체크인 직후 보증금 영향을 즉시 가시화 (실제 차감은 운영자 확정 시점). `is_test` 회차 + presenter 미수행 페널티는 프리뷰에서 제외(혼선 방지).
+- **페이지 전환 체감 개선**:
+  - `app/(member)/loading.tsx` 추가 — 탭 전환 시 즉시 스켈레톤 노출 (이전엔 SSR 끝날 때까지 이전 화면이 그대로 멈춰 보임)
+  - `BottomNav` `useTransition` + 옵티미스틱 `pendingHref` — 클릭 즉시 활성 탭 색상 + 아이콘 펄스 애니메이션으로 시각 피드백
+
+### 테스트 회차 시각적 구분 (🧪 테스트 뱃지)
+- `is_test=true` 회차가 운영진 화면에서 일반 회차와 즉시 구분되도록 보라색 뱃지/배경을 일관되게 적용
+- 적용 위치:
+  - 멤버 홈(`/`) — 오늘/다음 스터디 카드 헤더
+  - 출결(`/attendance`) — 다음 스터디 카드
+  - 일정(`/schedule`) — 리스트 회차 블록 헤더(보라 보더+배경) + 캘린더 셀(보라 배경) + 시트 헤더 + 범례
+  - 운영자 분기 일정(`/admin/schedule`) — `SessionRow` 좌측 회차 칩 + 날짜 옆 뱃지
+  - 운영자 출석체크(`/admin/schedule/[id]/attendance`) — 헤더 뱃지 + "테스트 회차입니다 (페널티 미생성, 일반 멤버 비노출)" 안내 박스
+
 ### 회차별 지각 판정 기준 (`late_after_minutes`)
 - **마이그레이션 0013**: `sessions.late_after_minutes INTEGER` (nullable) 추가
   - NULL이면 기본 19:20 (`DEFAULT_LATE_MINUTES = 1160`) 사용

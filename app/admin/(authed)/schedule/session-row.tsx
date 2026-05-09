@@ -72,11 +72,22 @@ export function SessionRow({
           onClick={() => setExpanded(v => !v)}
           className="flex w-full items-center gap-3 p-4 text-left"
         >
-          <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg bg-green-50 text-green-700">
+          <div
+            className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg ${
+              session.is_test ? 'bg-purple-50 text-purple-700' : 'bg-green-50 text-green-700'
+            }`}
+          >
             <span className="text-xs font-medium">{session.session_number}회</span>
           </div>
           <div className="flex-1">
-            <div className="text-base font-bold text-gray-900">{formatDateLine(session.date)}</div>
+            <div className="flex items-center gap-2">
+              <div className="text-base font-bold text-gray-900">{formatDateLine(session.date)}</div>
+              {session.is_test && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800">
+                  🧪 테스트
+                </span>
+              )}
+            </div>
             <div className="text-sm text-gray-500">
               {SESSION_TYPE_LABEL[session.type]}
               {session.note ? ` · ${session.note}` : ''}

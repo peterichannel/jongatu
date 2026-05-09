@@ -12,10 +12,14 @@ type Transaction = {
 }
 
 function formatShort(d: string) {
-  const date = new Date(d)
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${m}.${day}`
+  // Asia/Seoul 기준 MM.DD (브라우저 로컬 타임존이 다른 경우에도 일관)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    month: '2-digit',
+    day: '2-digit'
+  })
+    .format(new Date(d))
+    .replace('-', '.')
 }
 
 export function TransactionList({ transactions }: { transactions: Transaction[] }) {

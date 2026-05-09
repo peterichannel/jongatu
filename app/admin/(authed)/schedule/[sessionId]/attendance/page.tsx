@@ -97,8 +97,20 @@ export default async function SessionAttendancePage({
         session && (
           <>
             <div className="mb-6">
-              <div className="text-sm text-gray-500">{session.session_number}회차</div>
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <span>{session.session_number}회차</span>
+                {session.is_test && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800">
+                    🧪 테스트
+                  </span>
+                )}
+              </div>
               <h1 className="text-2xl font-bold">{formatDateKR(session.date)} 출석체크</h1>
+              {session.is_test && (
+                <p className="mt-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm text-purple-900">
+                  테스트 회차입니다. 출결을 확정해도 페널티 트랜잭션은 생성되지 않고, 일반 멤버에겐 보이지 않습니다.
+                </p>
+              )}
             </div>
             <AttendanceChecker
               session={session}

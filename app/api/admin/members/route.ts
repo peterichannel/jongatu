@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { seoulDateISO } from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   const joined_at =
     typeof body.joined_at === 'string' && body.joined_at
       ? body.joined_at
-      : new Date().toISOString().slice(0, 10)
+      : seoulDateISO()
 
   const supabase = supabaseAdmin()
   const { data, error } = await supabase

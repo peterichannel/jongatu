@@ -33,13 +33,12 @@ const TEST_LATE_AFTER_MINUTES = 16 * 60 + 30 // 16:30 = 990
 const TEST_NOTE = '테스트 회차 (16:30 이후 = 지각)'
 
 function todayISOInSeoul() {
-  const now = new Date()
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
-  const seoul = new Date(utcMs + 9 * 3600_000)
-  const yyyy = seoul.getFullYear()
-  const mm = String(seoul.getMonth() + 1).padStart(2, '0')
-  const dd = String(seoul.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
 }
 
 async function main() {

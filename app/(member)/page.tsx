@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
+import { seoulDateISO } from '@/lib/seoul-time'
 import { MemberAuthFlow } from '@/components/MemberAuthFlow'
 import { CheckInButton } from './check-in-button'
 import type { Member, Session } from '@/lib/types'
@@ -30,16 +31,6 @@ function formatLateThreshold(minutes: number | null) {
   const hh = Math.floor(m / 60)
   const mm = m % 60
   return `${hh}시 ${String(mm).padStart(2, '0')}분`
-}
-
-function todayISOInSeoul() {
-  const now = new Date()
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
-  const seoul = new Date(utcMs + 9 * 3600_000)
-  const yyyy = seoul.getFullYear()
-  const mm = String(seoul.getMonth() + 1).padStart(2, '0')
-  const dd = String(seoul.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
 }
 
 type PreAttendanceRow = {
@@ -97,7 +88,7 @@ export default async function HomePage() {
       .eq('is_active', true)
       .maybeSingle()
     if (q) {
-      const today = todayISOInSeoul()
+      const today = seoulDateISO()
       // 오늘 회차
       let todayQuery = supabase
         .from('sessions')
@@ -290,9 +281,12 @@ function SignedInView({
       {/* 오늘 출석 체크인 (당일에만 노출) */}
       {isToday && todaySession && (
         <section className="mb-5 rounded-2xl border-2 border-amber-300 bg-amber-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-amber-900">
             <CalendarCheck className="h-5 w-5" />
-            오늘 스터디 — {formatDateKR(todaySession.date)} · {todaySession.session_number}회차
+            <span>
+              오늘 스터디 — {formatDateKR(todaySession.date)} · {todaySession.session_number}회차
+            </span>
+            {todaySession.is_test && <TestBadge />}
           </div>
           {myAttendanceToday ? (
             <CheckedInStatus row={myAttendanceToday} />
@@ -309,7 +303,10 @@ function SignedInView({
 
       {/* 다음 스터디 + 사전참석 응답 */}
       <section className="mb-5 rounded-2xl bg-green-50 p-5">
-        <h2 className="mb-2 text-lg font-bold text-green-900">📅 다음 스터디</h2>
+        <h2 className="mb-2 flex flex-wrap items-center gap-2 text-lg font-bold text-green-900">
+          <span>📅 다음 스터디</span>
+          {nextSession?.is_test && <TestBadge />}
+        </h2>
         {nextSession ? (
           <>
             <p className="text-base text-green-800">
@@ -469,6 +466,14 @@ function CheckedInStatus({ row }: { row: AttendanceRow }) {
   }
   return (
     <div className="mt-3 rounded-xl bg-white p-3 text-sm text-gray-700">공결 처리</div>
+  )
+}
+
+function TestBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-800">
+      🧪 테스트
+    </span>
   )
 }
 

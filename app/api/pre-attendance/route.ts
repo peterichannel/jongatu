@@ -1,14 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
+import { seoulDateISO } from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
 const VALID_STATUS = new Set(['attending', 'absent'])
-
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export async function GET(req: Request) {
   const me = await getAuthedMember()
@@ -64,7 +61,7 @@ export async function POST(req: Request) {
   if (session.is_test && !me.is_admin) {
     return NextResponse.json({ error: '테스트 회차는 운영진만 응답 가능합니다' }, { status: 403 })
   }
-  if (session.date < todayISO()) {
+  if (session.date < seoulDateISO()) {
     return NextResponse.json({ error: '이미 지난 회차입니다' }, { status: 400 })
   }
 

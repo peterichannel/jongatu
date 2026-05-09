@@ -16,6 +16,12 @@ export function formatDateKR(d: string | Date) {
   }).format(date)
 }
 
+// Asia/Seoul 기준 오늘 날짜. 단일 타임존 가정 — 다른 타임존이 필요하면 lib/seoul-time.ts 또는 직접 Intl.DateTimeFormat 사용.
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date())
 }

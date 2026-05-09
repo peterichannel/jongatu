@@ -2,13 +2,28 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
+import { seoulDateISO } from '@/lib/seoul-time'
 import type { Member, Presentation, Session } from '@/lib/types'
 import { AttendanceResponse } from './attendance-response'
 
 export const revalidate = 0
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
+type AttendanceRow = {
+  id: string
+  session_id: string
+  member_id: string
+  status: 'present' | 'late' | 'absent' | 'excused'
+  checked_in_at: string | null
+  is_confirmed: boolean
+}
+
+type PreAttendanceRow = {
+  id: string
+  session_id: string
+  member_id: string
+  status: 'attending' | 'absent'
+  reason: string | null
+  responded_at: string
 }
 
 export default async function AttendancePage() {
@@ -33,8 +48,13 @@ export default async function AttendancePage() {
   }
 
   let envError: string | null = null
-  let nextSession: Session | null = null
-  let presentations: Presentation[] = []
+  let todaySession: Session | null = null
+  let futureSession: Session | null = null
+  let todayPresentations: Presentation[] = []
+  let futurePresentations: Presentation[] = []
+  let myAttendanceToday: AttendanceRow | null = null
+  let myPreToday: PreAttendanceRow | null = null
+  let myPreFuture: PreAttendanceRow | null = null
   let members: Member[] = []
 
   try {
@@ -46,26 +66,66 @@ export default async function AttendancePage() {
       .maybeSingle()
 
     if (q) {
-      let nsQuery = supabase
+      const today = seoulDateISO()
+
+      // 오늘 회차
+      let todayQuery = supabase
         .from('sessions')
         .select('*')
         .eq('quarter_id', q.id)
         .eq('type', 'normal')
-        .gte('date', todayISO())
-      if (!me.is_admin) nsQuery = nsQuery.eq('is_test', false)
-      const { data: ns } = await nsQuery
+        .eq('date', today)
+      if (!me.is_admin) todayQuery = todayQuery.eq('is_test', false)
+      const { data: ts } = await todayQuery.maybeSingle()
+      todaySession = ts ?? null
+
+      // 미래 회차 (오늘 이후 가장 가까운 1건)
+      let futureQuery = supabase
+        .from('sessions')
+        .select('*')
+        .eq('quarter_id', q.id)
+        .eq('type', 'normal')
+        .gt('date', today)
+      if (!me.is_admin) futureQuery = futureQuery.eq('is_test', false)
+      const { data: fs } = await futureQuery
         .order('date', { ascending: true })
         .limit(1)
         .maybeSingle()
-      nextSession = ns
+      futureSession = fs ?? null
 
-      if (nextSession) {
-        const { data: pres } = await supabase
-          .from('presentations')
-          .select('*')
-          .eq('session_id', nextSession.id)
-          .order('slot')
-        presentations = pres ?? []
+      const sessionIds: string[] = []
+      if (todaySession) sessionIds.push(todaySession.id)
+      if (futureSession) sessionIds.push(futureSession.id)
+
+      if (sessionIds.length > 0) {
+        const [presRes, attRes, preRes] = await Promise.all([
+          supabase.from('presentations').select('*').in('session_id', sessionIds).order('slot'),
+          todaySession
+            ? supabase
+                .from('attendances')
+                .select('*')
+                .eq('session_id', todaySession.id)
+                .eq('member_id', me.id)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
+          supabase
+            .from('pre_attendances')
+            .select('*')
+            .eq('member_id', me.id)
+            .in('session_id', sessionIds)
+        ])
+
+        const allPres = (presRes.data ?? []) as Presentation[]
+        if (todaySession)
+          todayPresentations = allPres.filter(p => p.session_id === todaySession!.id)
+        if (futureSession)
+          futurePresentations = allPres.filter(p => p.session_id === futureSession!.id)
+
+        myAttendanceToday = (attRes.data as AttendanceRow | null) ?? null
+        for (const row of (preRes.data as PreAttendanceRow[] | null) ?? []) {
+          if (todaySession && row.session_id === todaySession.id) myPreToday = row
+          if (futureSession && row.session_id === futureSession.id) myPreFuture = row
+        }
       }
     }
 
@@ -87,7 +147,7 @@ export default async function AttendancePage() {
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {envError}
         </div>
-      ) : !nextSession ? (
+      ) : !todaySession && !futureSession ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <p className="text-base font-semibold text-amber-900">다가오는 회차가 없습니다</p>
           <p className="mt-1 text-sm text-amber-800">
@@ -97,9 +157,14 @@ export default async function AttendancePage() {
       ) : (
         <AttendanceResponse
           me={me}
-          session={nextSession}
-          presentations={presentations}
           members={members}
+          todaySession={todaySession}
+          todayPresentations={todayPresentations}
+          myAttendanceToday={myAttendanceToday}
+          myPreToday={myPreToday}
+          futureSession={futureSession}
+          futurePresentations={futurePresentations}
+          myPreFuture={myPreFuture}
         />
       )}
     </main>

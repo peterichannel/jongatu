@@ -9,6 +9,7 @@ import {
   CalendarCheck
 } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
+import { seoulDateISO } from '@/lib/seoul-time'
 
 export const revalidate = 0
 
@@ -18,16 +19,6 @@ const tiles = [
   { href: '/admin/finance', label: '정산', icon: DollarSign, desc: '보증금/운영비', enabled: true },
   { href: '/admin/evaluations', label: '평가 결과', icon: Star, desc: '발표 평가 모음', enabled: true }
 ] as const
-
-function todayISOInSeoul() {
-  const now = new Date()
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
-  const seoul = new Date(utcMs + 9 * 3600_000)
-  const yyyy = seoul.getFullYear()
-  const mm = String(seoul.getMonth() + 1).padStart(2, '0')
-  const dd = String(seoul.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
 
 export default async function AdminHome() {
   let preCounts: { attending: number; absent: number; no_response: number } | null = null
@@ -56,7 +47,7 @@ export default async function AdminHome() {
       .eq('is_active', true)
       .maybeSingle()
     if (q) {
-      const today = todayISOInSeoul()
+      const today = seoulDateISO()
       const { data: ts } = await supabase
         .from('sessions')
         .select('id, date, session_number')
