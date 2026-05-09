@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { Home, Calendar, ClipboardCheck, Star, User } from 'lucide-react'
+import { Home, Calendar, ClipboardCheck, Loader2, Star, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const items = [
@@ -51,13 +51,20 @@ export function BottomNav() {
             onClick={() => handleNavigate(item.href)}
             className={cn(
               'flex flex-1 flex-col items-center justify-center gap-1 py-3 transition-colors',
-              active ? 'text-green-600' : 'text-gray-500'
+              // 손가락 닿는 순간 즉각 시각 반응 (모든 탭 공통)
+              'active:bg-gray-200',
+              // 옵티미스틱 active: 이동 중인 탭 배경까지 채워서 "어디 누른지" 명확히
+              active ? 'bg-green-50 text-green-700' : 'text-gray-500'
             )}
           >
-            <Icon
-              className={cn('h-6 w-6', isLoading && 'animate-pulse')}
-              strokeWidth={active ? 2.5 : 2}
-            />
+            {isLoading ? (
+              <Loader2
+                className="h-6 w-6 animate-spin text-green-600"
+                strokeWidth={2.5}
+              />
+            ) : (
+              <Icon className="h-6 w-6" strokeWidth={active ? 2.5 : 2} />
+            )}
             <span className={cn('text-sm', active && 'font-bold')}>{item.label}</span>
           </button>
         )

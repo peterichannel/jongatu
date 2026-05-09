@@ -15,3 +15,13 @@ body {
 input, button, select, textarea {
   font-family: inherit;
 }
+
+/* iOS Safari 회색 tap highlight 깜빡임 제거 (직접 active 스타일로 대체) */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS 더블탭 zoom 으로 인한 300ms 클릭 지연 제거 */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
