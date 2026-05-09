@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { AlertCircle, CalendarCheck, ShieldCheck, User, Wallet } from 'lucide-react'
+import { AlertCircle, CalendarCheck, Mic, ShieldCheck, User, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
@@ -40,6 +40,14 @@ type PendingPreview = {
   amount: number
 }
 
+type PresentationHistoryItem = {
+  presentationId: string
+  date: string
+  sessionNumber: number
+  quarterName: string
+  label: string
+}
+
 export default async function MePage({
   searchParams
 }: {
@@ -77,6 +85,7 @@ export default async function MePage({
   const attendanceCounts = { present: 0, late: 0, absent: 0, excused: 0 }
   let normalSessionCount = 0
   const pendingPreviews: PendingPreview[] = []
+  let presentationHistory: PresentationHistoryItem[] = []
 
   try {
     const supabase = supabaseAdmin()
@@ -87,6 +96,38 @@ export default async function MePage({
       .order('start_date', { ascending: false })
     if (qErr) throw new Error(qErr.message)
     quarters = (qs ?? []) as Quarter[]
+
+    // 발표 이력 — 본인이 발표자였던 모든 회차 (분기 무관)
+    const { data: pres } = await supabase
+      .from('presentations')
+      .select(
+        'id, company_name, special_label, session:sessions(id, date, session_number, quarter:quarters(name))'
+      )
+      .eq('presenter_id', memberId)
+    for (const row of pres ?? []) {
+      const sRaw = (row as { session: unknown }).session
+      const s = (Array.isArray(sRaw) ? sRaw[0] : sRaw) as
+        | {
+            id: string
+            date: string
+            session_number: number
+            quarter: { name: string } | { name: string }[] | null
+          }
+        | null
+      if (!s) continue
+      const qRaw = s.quarter
+      const qName = (Array.isArray(qRaw) ? qRaw[0]?.name : qRaw?.name) ?? ''
+      const company = (row as { company_name: string | null }).company_name
+      const special = (row as { special_label: string | null }).special_label
+      presentationHistory.push({
+        presentationId: row.id as string,
+        date: s.date,
+        sessionNumber: s.session_number,
+        quarterName: qName,
+        label: company ?? special ?? '(기업 미입력)'
+      })
+    }
+    presentationHistory.sort((a, b) => b.date.localeCompare(a.date))
 
     const requested = searchParams.quarter
     targetQuarter =
@@ -334,6 +375,32 @@ export default async function MePage({
             </div>
           ))}
         </div>
+      </section>
+
+      {/* 발표 이력 — 분기 무관 전체 */}
+      <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-700">
+          <Mic className="h-4 w-4" />
+          발표 이력 ({presentationHistory.length}회)
+        </div>
+        {presentationHistory.length === 0 ? (
+          <p className="text-sm text-gray-500">아직 발표 이력이 없습니다.</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {presentationHistory.map(p => (
+              <li
+                key={p.presentationId}
+                className="flex items-baseline justify-between gap-3"
+              >
+                <span className="text-gray-600">
+                  {formatDateKR(p.date)}
+                  {p.quarterName ? ` · ${p.quarterName}` : ''}
+                </span>
+                <span className="text-right font-semibold text-gray-900">{p.label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </main>
   )
