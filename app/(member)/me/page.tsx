@@ -1,11 +1,5 @@
 import Link from 'next/link'
-import {
-  AlertCircle,
-  ArrowRight,
-  CalendarCheck,
-  ShieldCheck,
-  Wallet
-} from 'lucide-react'
+import { AlertCircle, CalendarCheck, ShieldCheck, User, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
@@ -214,24 +208,34 @@ export default async function MePage({
         <p className="mb-6 text-sm text-gray-500">{targetQuarter.name} 분기</p>
       )}
 
-      {/* 운영자 메뉴 */}
-      {me.is_admin && (
-        <section className="mb-5">
-          <Link
-            href="/admin"
-            className="flex items-center justify-between rounded-2xl border border-gray-900 bg-gray-900 p-4 text-white hover:bg-gray-800"
-          >
-            <div className="flex items-center gap-3">
-              <ShieldCheck className="h-6 w-6" />
-              <div>
-                <div className="text-base font-bold">관리자 메뉴</div>
-                <div className="text-xs text-gray-300">멤버/일정/평가/정산 관리</div>
-              </div>
+      {/* 본인 프로필 */}
+      <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+            <User className="h-6 w-6 text-gray-600" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold text-gray-900">{memberName}</span>
+              {me.is_admin ? (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-green-700 px-2 py-0.5 text-[10px] font-bold text-white">
+                  <ShieldCheck className="h-2.5 w-2.5" />
+                  운영자
+                </span>
+              ) : (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700">
+                  멤버
+                </span>
+              )}
             </div>
-            <ArrowRight className="h-5 w-5" />
-          </Link>
-        </section>
-      )}
+            {me.joined_at && (
+              <div className="mt-0.5 text-xs text-gray-500">
+                가입일: {formatDateKR(me.joined_at)}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* 분기 선택 */}
       {quarters.length > 0 && targetQuarter && (
