@@ -30,6 +30,10 @@ function formatDateKR(d: string) {
 const ATTEND_WINDOW_START = 18 * 60 + 30
 const ATTEND_WINDOW_END = 20 * 60
 
+// 운영자 출석 안내 윈도우 (당일 18:00 ~ 18:30)
+const NOTICE_WINDOW_START = 18 * 60
+const NOTICE_WINDOW_END = 18 * 60 + 30
+
 // KST 기준 두 날짜(YYYY-MM-DD) 사이 일수: target - today
 function daysFromTodayKST(today: string, target: string): number {
   const t1 = new Date(`${today}T00:00:00+09:00`).getTime()
@@ -387,7 +391,14 @@ function SignedInView({
             />
           )}
 
-          {/* TODO(다음 커밋): 출석 안내 / 출결 확정 알림 */}
+          {/* 출석 안내 메시지 — 당일 18:00 ~ 18:30 */}
+          {todaySession &&
+            nowMinutes >= NOTICE_WINDOW_START &&
+            nowMinutes < NOTICE_WINDOW_END && (
+              <CheckInNoticeCard session={todaySession} />
+            )}
+
+          {/* TODO(다음 커밋): 출결 확정 알림 */}
         </>
       )}
 
@@ -487,6 +498,30 @@ function UnrespondedReminderCard({
         shareTitle="종가투 사전참석 마감 임박"
         variant="danger"
       />
+    </section>
+  )
+}
+
+function CheckInNoticeCard({ session }: { session: Session }) {
+  const urlLine = APP_URL ? `\n👉 ${APP_URL}` : ''
+  const message = [
+    '오늘 7시 종가투 스터디입니다.',
+    '도착하시면 앱에서 출석 체크 부탁드립니다.' + urlLine
+  ].join('\n')
+
+  return (
+    <section className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-bold text-amber-900">📢 출석 안내 메시지</div>
+        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+          오늘 #{session.session_number}회차
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-amber-800">단톡방에 복사해 보내주세요.</p>
+      <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-amber-100 bg-white p-3 text-sm leading-relaxed text-gray-800">
+{message}
+      </pre>
+      <CopyShareButtons message={message} shareTitle="종가투 출석 안내" />
     </section>
   )
 }
