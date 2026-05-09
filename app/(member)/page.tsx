@@ -47,6 +47,7 @@ export default async function HomePage() {
   let myPreAttended = false
   let myAttendanceToday = false
   let evalUnfinishedCount = 0
+  let unresponded: { id: string; name: string }[] = []
 
   // 가드 분기 위해 me 를 먼저 조회 (비운영진은 is_test 회차 숨김)
   const me = await getAuthedMember()
@@ -157,6 +158,18 @@ export default async function HomePage() {
 
           evalUnfinishedCount = Math.max(targetCount - (myEvalCount ?? 0), 0)
         }
+
+        // 운영자: 다음 회차 사전참석 미응답자 명단 (재안내 카드용)
+        if (me.is_admin && nextSession) {
+          const { data: allPre } = await supabase
+            .from('pre_attendances')
+            .select('member_id')
+            .eq('session_id', nextSession.id)
+          const respondedIds = new Set((allPre ?? []).map(p => p.member_id as string))
+          unresponded = members
+            .filter(m => !respondedIds.has(m.id))
+            .map(m => ({ id: m.id, name: m.name }))
+        }
       }
     }
   } catch (e) {
@@ -194,6 +207,7 @@ export default async function HomePage() {
           myPreAttended={myPreAttended}
           myAttendanceToday={myAttendanceToday}
           evalUnfinishedCount={evalUnfinishedCount}
+          unresponded={unresponded}
         />
       ) : (
         <MemberAuthFlow members={members.map(m => ({ id: m.id, name: m.name }))} />
@@ -211,7 +225,8 @@ function SignedInView({
   evalSession,
   myPreAttended,
   myAttendanceToday,
-  evalUnfinishedCount
+  evalUnfinishedCount,
+  unresponded
 }: {
   member: Member
   nextSession: Session | null
@@ -222,6 +237,7 @@ function SignedInView({
   myPreAttended: boolean
   myAttendanceToday: boolean
   evalUnfinishedCount: number
+  unresponded: { id: string; name: string }[]
 }) {
   const today = seoulDateISO()
   const nowMinutes = seoulMinutesOfDay()
@@ -363,7 +379,15 @@ function SignedInView({
             />
           )}
 
-          {/* TODO(다음 커밋): 미응답자 재안내 / 출석 안내 / 출결 확정 알림 */}
+          {/* 사전참석 미응답자 재안내 — D-1 + 미응답 1명 이상 */}
+          {nextSession && daysToNext === 1 && unresponded.length > 0 && (
+            <UnrespondedReminderCard
+              session={nextSession}
+              unresponded={unresponded}
+            />
+          )}
+
+          {/* TODO(다음 커밋): 출석 안내 / 출결 확정 알림 */}
         </>
       )}
 
@@ -422,6 +446,47 @@ function PreAttendanceNoticeCard({
 {message}
       </pre>
       <CopyShareButtons message={message} shareTitle="종가투 사전참석 안내" />
+    </section>
+  )
+}
+
+function UnrespondedReminderCard({
+  session,
+  unresponded
+}: {
+  session: Session
+  unresponded: { id: string; name: string }[]
+}) {
+  const names = unresponded.map(u => u.name).join(', ')
+  const urlLine = APP_URL ? `\n👉 ${APP_URL}/attendance` : ''
+  const message = [
+    '종가투 사전참석 마감 임박합니다 🙏',
+    '',
+    '아직 답변 안하신 분:',
+    names,
+    '',
+    '오늘 자정까지 부탁드립니다.' + urlLine
+  ].join('\n')
+
+  return (
+    <section className="mb-3 rounded-2xl border-2 border-red-300 bg-red-50 p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-bold text-red-900">📢 사전참석 미응답자 재안내</div>
+        <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">
+          D-1 · {unresponded.length}명 미응답
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-red-800">
+        {session.session_number}회차 마감 임박. 단톡방에 복사해 보내주세요.
+      </p>
+      <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-red-200 bg-white p-3 text-sm leading-relaxed text-gray-800">
+{message}
+      </pre>
+      <CopyShareButtons
+        message={message}
+        shareTitle="종가투 사전참석 마감 임박"
+        variant="danger"
+      />
     </section>
   )
 }
