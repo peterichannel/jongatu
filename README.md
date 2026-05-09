@@ -105,8 +105,8 @@ supabase/
 ## Vercel 배포
 
 1. GitHub에 push
-2. https://vercel.com/new 에서 import
-3. Environment Variables 에 `.env.local` 의 3개 값 복사
+2. https://vercel.com/new 에서 import (또는 CLI: `npx vercel` → `npx vercel --prod`)
+3. Environment Variables 에 `.env.local` 의 3개 값 복사 (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_PIN_HASH`)
 4. Deploy
 
 ## PRD 핵심 원칙
