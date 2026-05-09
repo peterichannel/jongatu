@@ -3,6 +3,7 @@ import { ArrowRight, ChevronRight, ShieldCheck } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
 import { addDaysSeoulISO, seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
+import { formatKRW } from '@/lib/utils'
 import { MemberAuthFlow } from '@/components/MemberAuthFlow'
 import { CopyShareButtons } from '@/components/CopyShareButtons'
 import type { Member, Presentation, Session } from '@/lib/types'
@@ -46,6 +47,8 @@ export default async function HomePage() {
   let evalUnfinishedCount = 0
   let unresponded: { id: string; name: string }[] = []
   let confirmTarget: Session | null = null
+  let myBalance: number | null = null
+  let myAttendanceRate: number | null = null
 
   // 가드 분기 위해 me 를 먼저 조회 (비운영진은 is_test 회차 숨김)
   const me = await getAuthedMember()
@@ -169,6 +172,36 @@ export default async function HomePage() {
             .map(m => ({ id: m.id, name: m.name }))
         }
 
+        // 본인 미리보기: 보증금 잔액 + 활성 분기 출석률
+        const { data: deposit } = await supabase
+          .from('deposits')
+          .select('current_balance')
+          .eq('member_id', me.id)
+          .eq('quarter_id', q.id)
+          .maybeSingle()
+        if (deposit) myBalance = deposit.current_balance
+
+        const { data: qSessions } = await supabase
+          .from('sessions')
+          .select('id, type, is_test')
+          .eq('quarter_id', q.id)
+        const normalIds = (qSessions ?? [])
+          .filter(s => s.type === 'normal' && !s.is_test)
+          .map(s => s.id)
+        if (normalIds.length > 0) {
+          const { data: atts } = await supabase
+            .from('attendances')
+            .select('status')
+            .eq('member_id', me.id)
+            .in('session_id', normalIds)
+          const total = (atts ?? []).length
+          const attended = (atts ?? []).filter(
+            a => a.status === 'present' || a.status === 'late'
+          ).length
+          myAttendanceRate =
+            total > 0 ? Math.round((attended / total) * 1000) / 10 : null
+        }
+
         // 운영자: 출결 확정 대상 회차 (미확정인 가장 최근 종료 회차)
         if (me.is_admin) {
           // 우선순위: 오늘 회차(20:00 이후) → 그 다음 평가 대상 회차(어제 이전 최근)
@@ -224,6 +257,8 @@ export default async function HomePage() {
           evalUnfinishedCount={evalUnfinishedCount}
           unresponded={unresponded}
           confirmTarget={confirmTarget}
+          myBalance={myBalance}
+          myAttendanceRate={myAttendanceRate}
         />
       ) : (
         <MemberAuthFlow members={members.map(m => ({ id: m.id, name: m.name }))} />
@@ -243,7 +278,9 @@ function SignedInView({
   myAttendanceToday,
   evalUnfinishedCount,
   unresponded,
-  confirmTarget
+  confirmTarget,
+  myBalance,
+  myAttendanceRate
 }: {
   member: Member
   nextSession: Session | null
@@ -256,6 +293,8 @@ function SignedInView({
   evalUnfinishedCount: number
   unresponded: { id: string; name: string }[]
   confirmTarget: Session | null
+  myBalance: number | null
+  myAttendanceRate: number | null
 }) {
   const today = seoulDateISO()
   const nowMinutes = seoulMinutesOfDay()
@@ -417,7 +456,31 @@ function SignedInView({
         </>
       )}
 
-      {/* TODO(다음 커밋): 내 정보 미리보기 카드 */}
+      {/* 내 정보 미리보기 — 페이지 맨 하단 */}
+      <section className="rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mb-3 text-xs font-bold text-gray-500">📊 내 정보</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs text-gray-500">보증금 잔액</div>
+            <div className="mt-1 text-2xl font-bold text-green-900">
+              {myBalance !== null ? formatKRW(myBalance) : '-'}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500">이번 분기 출석률</div>
+            <div className="mt-1 text-2xl font-bold text-amber-900">
+              {myAttendanceRate !== null ? `${myAttendanceRate}%` : '-'}
+            </div>
+          </div>
+        </div>
+        <Link
+          href="/me"
+          className="mt-4 flex h-12 items-center justify-center gap-1 rounded-xl border border-gray-300 bg-white text-sm font-bold text-gray-800 hover:bg-gray-50"
+        >
+          내 정보 자세히 보기
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </section>
     </>
   )
 }
