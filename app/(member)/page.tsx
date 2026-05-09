@@ -1,8 +1,15 @@
 import Link from 'next/link'
-import { ArrowRight, ShieldCheck } from 'lucide-react'
+import {
+  ArrowRight,
+  CalendarCheck,
+  ChevronRight,
+  ClipboardCheck,
+  ShieldCheck,
+  Star
+} from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { seoulDateISO } from '@/lib/seoul-time'
+import { seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
 import { MemberAuthFlow } from '@/components/MemberAuthFlow'
 import type { Member, Presentation, Session } from '@/lib/types'
 
@@ -16,11 +23,27 @@ function formatDateKR(d: string) {
   return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
 }
 
+// 출석 체크 윈도우 (당일 18:30 ~ 20:00)
+const ATTEND_WINDOW_START = 18 * 60 + 30
+const ATTEND_WINDOW_END = 20 * 60
+
+// KST 기준 두 날짜(YYYY-MM-DD) 사이 일수: target - today
+function daysFromTodayKST(today: string, target: string): number {
+  const t1 = new Date(`${today}T00:00:00+09:00`).getTime()
+  const t2 = new Date(`${target}T00:00:00+09:00`).getTime()
+  return Math.round((t2 - t1) / (24 * 3600_000))
+}
+
 export default async function HomePage() {
   let envErrorMessage: string | null = null
   let members: Member[] = []
   let nextSession: Session | null = null
   let nextPresentations: Presentation[] = []
+  let todaySession: Session | null = null
+  let evalSession: Session | null = null
+  let myPreAttended = false
+  let myAttendanceToday = false
+  let evalUnfinishedCount = 0
 
   // 가드 분기 위해 me 를 먼저 조회 (비운영진은 is_test 회차 숨김)
   const me = await getAuthedMember()
@@ -43,6 +66,8 @@ export default async function HomePage() {
 
     if (q) {
       const today = seoulDateISO()
+
+      // 다음 회차 (오늘 포함 이후)
       let nextQuery = supabase
         .from('sessions')
         .select('*')
@@ -63,6 +88,72 @@ export default async function HomePage() {
           .eq('session_id', nextSession.id)
           .order('slot')
         nextPresentations = (pres ?? []) as Presentation[]
+      }
+
+      // 오늘 회차 (출석 체크 카드용)
+      let todayQuery = supabase
+        .from('sessions')
+        .select('*')
+        .eq('quarter_id', q.id)
+        .eq('type', 'normal')
+        .eq('date', today)
+      if (!me?.is_admin) todayQuery = todayQuery.eq('is_test', false)
+      const { data: ts } = await todayQuery.maybeSingle()
+      todaySession = ts ?? null
+
+      // 평가 대상 회차: 어제 이전 normal 중 가장 최근 (지난 회차 평가)
+      if (me) {
+        let evalQuery = supabase
+          .from('sessions')
+          .select('*')
+          .eq('quarter_id', q.id)
+          .eq('type', 'normal')
+          .lt('date', today)
+        if (!me.is_admin) evalQuery = evalQuery.eq('is_test', false)
+        const { data: es } = await evalQuery
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        evalSession = es ?? null
+      }
+
+      // 본인 사전참석/출석/평가 진행 상황
+      if (me) {
+        if (nextSession) {
+          const { data: pre } = await supabase
+            .from('pre_attendances')
+            .select('id')
+            .eq('session_id', nextSession.id)
+            .eq('member_id', me.id)
+            .maybeSingle()
+          myPreAttended = !!pre
+        }
+        if (todaySession) {
+          const { data: att } = await supabase
+            .from('attendances')
+            .select('id')
+            .eq('session_id', todaySession.id)
+            .eq('member_id', me.id)
+            .maybeSingle()
+          myAttendanceToday = !!att
+        }
+        if (evalSession) {
+          const { data: targets } = await supabase
+            .from('presentations')
+            .select('presenter_id, special_label')
+            .eq('session_id', evalSession.id)
+          const targetCount = (targets ?? []).filter(
+            p => p.presenter_id && p.presenter_id !== me.id && !p.special_label
+          ).length
+
+          const { count: myEvalCount } = await supabase
+            .from('evaluations')
+            .select('*', { count: 'exact', head: true })
+            .eq('session_id', evalSession.id)
+            .eq('evaluator_id', me.id)
+
+          evalUnfinishedCount = Math.max(targetCount - (myEvalCount ?? 0), 0)
+        }
       }
     }
   } catch (e) {
@@ -95,6 +186,11 @@ export default async function HomePage() {
           nextSession={nextSession}
           nextPresentations={nextPresentations}
           allMembers={members}
+          todaySession={todaySession}
+          evalSession={evalSession}
+          myPreAttended={myPreAttended}
+          myAttendanceToday={myAttendanceToday}
+          evalUnfinishedCount={evalUnfinishedCount}
         />
       ) : (
         <MemberAuthFlow members={members.map(m => ({ id: m.id, name: m.name }))} />
@@ -107,13 +203,46 @@ function SignedInView({
   member,
   nextSession,
   nextPresentations,
-  allMembers
+  allMembers,
+  todaySession,
+  evalSession,
+  myPreAttended,
+  myAttendanceToday,
+  evalUnfinishedCount
 }: {
   member: Member
   nextSession: Session | null
   nextPresentations: Presentation[]
   allMembers: Member[]
+  todaySession: Session | null
+  evalSession: Session | null
+  myPreAttended: boolean
+  myAttendanceToday: boolean
+  evalUnfinishedCount: number
 }) {
+  const today = seoulDateISO()
+  const nowMinutes = seoulMinutesOfDay()
+
+  // 사전참석 답하기 카드 노출: D-2 ~ D-1 (오늘 + 1~2일이 회차일) AND 미응답
+  const daysToNext = nextSession ? daysFromTodayKST(today, nextSession.date) : null
+  const showPreAttendCard =
+    !!nextSession && !myPreAttended && daysToNext !== null && (daysToNext === 1 || daysToNext === 2)
+
+  // 출석 체크 카드 노출: 당일 18:30~20:00 + 미체크
+  const showCheckInCard =
+    !!todaySession &&
+    !myAttendanceToday &&
+    nowMinutes >= ATTEND_WINDOW_START &&
+    nowMinutes < ATTEND_WINDOW_END
+
+  // 평가 카드 노출: 평가 대상 회차 있고, 미완료 발표 있고, 다음 회차 D-2 전
+  const showEvalCard =
+    !!evalSession &&
+    evalUnfinishedCount > 0 &&
+    (daysToNext === null || daysToNext >= 2)
+
+  const hasAnyAction = showPreAttendCard || showCheckInCard || showEvalCard
+
   const memberName = (id: string | null | undefined) =>
     id ? allMembers.find(m => m.id === id)?.name ?? '(알수없음)' : ''
 
@@ -165,7 +294,42 @@ function SignedInView({
         )}
       </section>
 
-      {/* TODO(다음 커밋): "지금 해야 할 일" 액션 카드 (사전참석/출석/평가) */}
+      {/* 지금 해야 할 일 — 시간 기반 액션 카드 (조건 안 맞으면 카드 숨김) */}
+      {hasAnyAction && (
+        <section className="mb-5">
+          <h2 className="mb-2 text-xs font-bold text-gray-700">⚡ 지금 해야 할 일</h2>
+          <div className="space-y-2">
+            {showPreAttendCard && nextSession && (
+              <ActionCard
+                href="/attendance"
+                emoji="✓"
+                title="사전참석 답하기"
+                subtitle={`${formatDateKR(nextSession.date)} 회차 — D-${daysToNext}`}
+                tone="green"
+              />
+            )}
+            {showCheckInCard && todaySession && (
+              <ActionCard
+                href="/attendance"
+                emoji="📍"
+                title="오늘 출석 체크"
+                subtitle={`${formatDateKR(todaySession.date)} · ${todaySession.session_number}회차`}
+                tone="amber"
+              />
+            )}
+            {showEvalCard && evalSession && (
+              <ActionCard
+                href="/evaluation"
+                emoji="⭐"
+                title="이번주 평가하기"
+                subtitle={`${formatDateKR(evalSession.date)} 회차 — 미응답 ${evalUnfinishedCount}건`}
+                tone="amber"
+              />
+            )}
+          </div>
+        </section>
+      )}
+
 
       {/* 운영자 액션 영역 */}
       {member.is_admin && (
@@ -192,6 +356,44 @@ function SignedInView({
 
       {/* TODO(다음 커밋): 내 정보 미리보기 카드 */}
     </>
+  )
+}
+
+function ActionCard({
+  href,
+  emoji,
+  title,
+  subtitle,
+  tone
+}: {
+  href: string
+  emoji: string
+  title: string
+  subtitle: string
+  tone: 'green' | 'amber'
+}) {
+  const toneCls =
+    tone === 'amber'
+      ? 'border-amber-300 bg-amber-50 hover:bg-amber-100'
+      : 'border-green-200 bg-white hover:bg-green-50'
+  const titleCls = tone === 'amber' ? 'text-amber-900' : 'text-gray-900'
+  const subCls = tone === 'amber' ? 'text-amber-800' : 'text-gray-600'
+  return (
+    <Link
+      href={href}
+      className={`flex min-h-14 items-center justify-between rounded-2xl border px-4 py-3 transition ${toneCls}`}
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-xl" aria-hidden>
+          {emoji}
+        </span>
+        <div>
+          <div className={`text-base font-bold ${titleCls}`}>{title}</div>
+          <div className={`text-xs ${subCls}`}>{subtitle}</div>
+        </div>
+      </div>
+      <ChevronRight className="h-5 w-5 text-gray-400" />
+    </Link>
   )
 }
 
