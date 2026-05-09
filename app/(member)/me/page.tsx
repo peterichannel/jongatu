@@ -97,10 +97,9 @@ export default async function MePage({
   let transactions: { id: string; amount: number; reason: string; created_at: string }[] = []
   const attendanceCounts = { present: 0, late: 0, absent: 0, excused: 0 }
   let normalSessionCount = 0
-  let presentationHistory: PresentationHistoryItem[] = []
-  let receivedEvalGroups: ReceivedEvalGroup[] = []
+  const presentationHistory: PresentationHistoryItem[] = []
+  const receivedEvalGroups: ReceivedEvalGroup[] = []
   let overallEvalAvg: number | null = null
-  let overallEvalCount = 0
 
   try {
     const supabase = supabaseAdmin()
@@ -192,7 +191,6 @@ export default async function MePage({
         })
         totalSum += total
         totalSlots += cnt * 5
-        overallEvalCount += cnt
       }
       if (totalSlots > 0) overallEvalAvg = Math.round((totalSum / totalSlots) * 10) / 10
     }
