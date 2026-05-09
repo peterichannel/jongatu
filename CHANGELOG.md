@@ -2,6 +2,15 @@
 
 ## 2026-05-09 (저녁)
 
+### 회차별 지각 판정 기준 (`late_after_minutes`)
+- **마이그레이션 0013**: `sessions.late_after_minutes INTEGER` (nullable) 추가
+  - NULL이면 기본 19:20 (`DEFAULT_LATE_MINUTES = 1160`) 사용
+  - 값이 있으면 자정 기준 분 단위로 그 시각 이후를 지각으로 판정 (예: 16:30 = `990`)
+- **자가 체크인 API** (`app/api/attendance/check-in/route.ts`): 회차의 `late_after_minutes` 우선 사용, 없으면 19:20 기본값
+- **홈 카드 안내문**: 하드코딩 "19시 20분" → 회차 값 기반 동적 표시 (예: "16시 30분 이후 = 지각")
+- **`scripts/create-test-session.ts`**: 테스트 회차에 `late_after_minutes=990 (16:30)` + note `'테스트 회차 (16:30 이후 = 지각)'`. 기존 #9999 회차가 있으면 오늘 날짜 + 16:30 기준으로 강제 갱신
+- 일반 회차는 영향 없음 (NULL → 19:20 그대로)
+
 ### 일정 페이지 (`/schedule`) UX 개선
 - **리스트 뷰**: 오늘(Asia/Seoul) 기준으로 회차를 분리
   - 다가오는 회차 (오늘 포함 이후)는 그대로 노출 — 다음 발표가 맨 위에 보임

@@ -4,9 +4,10 @@ import { getAuthedMember } from '@/lib/member-auth'
 
 export const runtime = 'nodejs'
 
-// 스터디 시작/지각 기준 (Asia/Seoul)
-const LATE_HOUR = 19
-const LATE_MINUTE = 20
+// 기본 지각 기준 (Asia/Seoul) — 회차에 late_after_minutes 가 설정되면 그 값을 우선 사용
+const DEFAULT_LATE_HOUR = 19
+const DEFAULT_LATE_MINUTE = 20
+const DEFAULT_LATE_MINUTES = DEFAULT_LATE_HOUR * 60 + DEFAULT_LATE_MINUTE
 
 function seoulNow() {
   // Vercel/대부분의 서버는 UTC. Asia/Seoul = UTC+9
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
 
   const { data: session, error: sErr } = await supabase
     .from('sessions')
-    .select('id, date, type, quarter_id, is_test')
+    .select('id, date, type, quarter_id, is_test, late_after_minutes')
     .eq('id', session_id)
     .maybeSingle()
   if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 })
@@ -76,7 +77,11 @@ export async function POST(req: Request) {
 
   const hour = now.getHours()
   const minute = now.getMinutes()
-  const isLate = hour > LATE_HOUR || (hour === LATE_HOUR && minute >= LATE_MINUTE)
+  const lateThresholdMinutes =
+    typeof session.late_after_minutes === 'number' && session.late_after_minutes >= 0
+      ? session.late_after_minutes
+      : DEFAULT_LATE_MINUTES
+  const isLate = hour * 60 + minute >= lateThresholdMinutes
   const status: 'present' | 'late' = isLate ? 'late' : 'present'
 
   // 기존 행이 있으면 status, checked_in_at 갱신 (운영자가 미리 입력했더라도 자가 체크 우선)

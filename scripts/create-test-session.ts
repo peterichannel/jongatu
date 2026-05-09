@@ -3,6 +3,7 @@
  *  - 활성 분기에 오늘(Asia/Seoul) 날짜로 1건 INSERT
  *  - session_number = 9999 (실제 회차와 충돌 방지)
  *  - is_test = true, type = 'normal'
+ *  - late_after_minutes = 990 (16:30) — 16:30 이전 자가 체크인은 출석, 이후는 지각으로 판정
  *  - 발표 슬롯은 비워둠
  *
  * 실행:
@@ -28,6 +29,8 @@ const sb = createClient(url, key, {
 })
 
 const TEST_SESSION_NUMBER = 9999
+const TEST_LATE_AFTER_MINUTES = 16 * 60 + 30 // 16:30 = 990
+const TEST_NOTE = '테스트 회차 (16:30 이후 = 지각)'
 
 function todayISOInSeoul() {
   const now = new Date()
@@ -44,7 +47,7 @@ async function main() {
 
   const { data: q, error: qErr } = await sb
     .from('quarters')
-    .select('id, name, year, quarter')
+    .select('id, name')
     .eq('is_active', true)
     .maybeSingle()
   if (qErr) {
@@ -55,7 +58,7 @@ async function main() {
     console.error('활성 분기가 없습니다. 운영자 화면에서 분기를 활성화 후 재시도하세요.')
     process.exit(1)
   }
-  console.log(`[1] 활성 분기: ${q.name} (${q.year}-Q${q.quarter})`)
+  console.log(`[1] 활성 분기: ${q.name}`)
   console.log(`[2] 오늘(Asia/Seoul): ${today}`)
 
   const { data: existing } = await sb
@@ -66,16 +69,18 @@ async function main() {
     .maybeSingle()
 
   if (existing) {
-    if (existing.date === today && existing.is_test) {
-      console.log(`[skip] 이미 오늘(${today}) 테스트 회차가 있습니다. id=${existing.id}`)
-      return
-    }
     console.log(
-      `[update] 기존 #${TEST_SESSION_NUMBER} 회차를 오늘 날짜로 갱신합니다 (id=${existing.id})`
+      `[update] 기존 #${TEST_SESSION_NUMBER} 회차를 오늘 날짜 + 16:30 기준으로 갱신합니다 (id=${existing.id})`
     )
     const { error: upErr } = await sb
       .from('sessions')
-      .update({ date: today, is_test: true, type: 'normal', note: '테스트 회차' })
+      .update({
+        date: today,
+        is_test: true,
+        type: 'normal',
+        note: TEST_NOTE,
+        late_after_minutes: TEST_LATE_AFTER_MINUTES
+      })
       .eq('id', existing.id)
     if (upErr) {
       console.error('update error:', upErr.message)
@@ -93,7 +98,8 @@ async function main() {
       date: today,
       type: 'normal',
       is_test: true,
-      note: '테스트 회차'
+      note: TEST_NOTE,
+      late_after_minutes: TEST_LATE_AFTER_MINUTES
     })
     .select()
     .single()
@@ -102,6 +108,7 @@ async function main() {
     process.exit(1)
   }
   console.log(`[done] 테스트 회차 생성 완료. id=${inserted.id}`)
+  console.log(`  - 지각 기준: 16:30 (이전 누르면 출석, 이후 누르면 지각)`)
   console.log(`  - 멤버 홈(/) 에서 운영진만 "오늘 스터디" 카드 + 자가 체크인 버튼 노출`)
   console.log(`  - 운영자 출석체크: /admin/schedule/${inserted.id}/attendance`)
 }

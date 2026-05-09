@@ -36,6 +36,7 @@ export type Session = {
   type: 'normal' | 'rest' | 'dinner' | 'social' | 'event'
   note: string | null
   is_test: boolean
+  late_after_minutes: number | null
 }
 
 export type Presentation = {

@@ -25,6 +25,13 @@ function formatDateKR(d: string) {
   return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
 }
 
+function formatLateThreshold(minutes: number | null) {
+  const m = typeof minutes === 'number' && minutes >= 0 ? minutes : 19 * 60 + 20
+  const hh = Math.floor(m / 60)
+  const mm = m % 60
+  return `${hh}시 ${String(mm).padStart(2, '0')}분`
+}
+
 function todayISOInSeoul() {
   const now = new Date()
   const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
@@ -293,7 +300,7 @@ function SignedInView({
             <div className="mt-3">
               <CheckInButton sessionId={todaySession.id} />
               <p className="mt-2 text-xs text-amber-800">
-                도착하시면 위 버튼을 눌러주세요. 19시 20분 이후 = 지각.
+                도착하시면 위 버튼을 눌러주세요. {formatLateThreshold(todaySession.late_after_minutes)} 이후 = 지각.
               </p>
             </div>
           )}
