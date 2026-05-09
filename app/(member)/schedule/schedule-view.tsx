@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   List,
@@ -26,6 +27,16 @@ function formatDateKR(d: string) {
   if (!y) return d
   const dt = new Date(Date.UTC(y, m - 1, day))
   return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
+}
+
+function todayISOInSeoul() {
+  const now = new Date()
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000
+  const seoul = new Date(utcMs + 9 * 3600_000)
+  const yyyy = seoul.getFullYear()
+  const mm = String(seoul.getMonth() + 1).padStart(2, '0')
+  const dd = String(seoul.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 const EVENT_TYPE_LABEL: Record<Session['type'], string> = {
@@ -65,6 +76,18 @@ export function ScheduleView({
     currentLabel: string
   } | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [showPast, setShowPast] = useState(false)
+
+  const today = todayISOInSeoul()
+  const { pastSessions, upcomingSessions } = useMemo(() => {
+    const past: Session[] = []
+    const upcoming: Session[] = []
+    for (const s of sessions) {
+      if (s.date < today) past.push(s)
+      else upcoming.push(s)
+    }
+    return { pastSessions: past, upcomingSessions: upcoming }
+  }, [sessions, today])
 
   useEffect(() => {
     if (!toast) return
@@ -289,7 +312,46 @@ export function ScheduleView({
               이 분기에 등록된 회차가 없습니다.
             </div>
           ) : (
-            sessions.map(s => renderSessionBlock(s))
+            <>
+              {/* 다가오는 회차 (오늘 포함) */}
+              {upcomingSessions.length > 0 ? (
+                upcomingSessions.map(s => renderSessionBlock(s))
+              ) : (
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-600">
+                  남은 회차가 없습니다. 다음 분기를 확인해주세요.
+                </div>
+              )}
+
+              {/* 지난 회차 — 아코디언으로 접기 */}
+              {pastSessions.length > 0 && (
+                <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => setShowPast(v => !v)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-gray-50"
+                    aria-expanded={showPast}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-700">지난 회차</span>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">
+                        {pastSessions.length}건
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={cn(
+                        'h-5 w-5 text-gray-500 transition-transform',
+                        showPast && 'rotate-180'
+                      )}
+                    />
+                  </button>
+                  {showPast && (
+                    <div className="space-y-4 border-t border-gray-100 bg-gray-50 p-4">
+                      {pastSessions.map(s => renderSessionBlock(s))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -298,6 +360,7 @@ export function ScheduleView({
           sessionsByDate={sessionsByDate}
           presBySession={presBySession}
           meId={me.id}
+          today={today}
           onSelectSession={id => setSelectedSessionId(id)}
         />
       )}
@@ -412,12 +475,14 @@ function CalendarView({
   sessionsByDate,
   presBySession,
   meId,
+  today,
   onSelectSession
 }: {
   sessions: Session[]
   sessionsByDate: Map<string, Session>
   presBySession: Map<string, Presentation[]>
   meId: string
+  today: string
   onSelectSession: (sessionId: string) => void
 }) {
   // 분기 내 첫/마지막 회차 월 범위
@@ -450,7 +515,22 @@ function CalendarView({
     }
   }, [sessions])
 
-  const [cal, setCal] = useState<{ year: number; month: number }>(monthRange.min)
+  // 오늘이 분기 범위 안에 들어오면 오늘 달부터, 아니면 분기 첫 달
+  const initialCal = useMemo(() => {
+    const [ty, tm] = today.split('-').map(Number)
+    const todayCal = { year: ty, month: tm - 1 }
+    const beforeMin =
+      todayCal.year < monthRange.min.year ||
+      (todayCal.year === monthRange.min.year && todayCal.month < monthRange.min.month)
+    const afterMax =
+      todayCal.year > monthRange.max.year ||
+      (todayCal.year === monthRange.max.year && todayCal.month > monthRange.max.month)
+    if (beforeMin) return monthRange.min
+    if (afterMax) return monthRange.max
+    return todayCal
+  }, [today, monthRange])
+
+  const [cal, setCal] = useState<{ year: number; month: number }>(initialCal)
 
   const canPrev =
     cal.year > monthRange.min.year ||
@@ -532,6 +612,7 @@ function CalendarView({
             ? summarizeSession(session, presBySession.get(session.id) ?? [], meId)
             : null
           const weekdayIdx = idx % 7
+          const isToday = c.date === today
           return (
             <button
               key={idx}
@@ -542,7 +623,8 @@ function CalendarView({
                 'flex aspect-square flex-col items-center justify-start gap-1 rounded-lg border p-1 text-[11px] transition',
                 session
                   ? 'border-gray-200 bg-white hover:border-green-400'
-                  : 'border-transparent text-gray-400'
+                  : 'border-transparent text-gray-400',
+                isToday && 'ring-2 ring-amber-400 ring-offset-1'
               )}
             >
               <span
@@ -551,7 +633,8 @@ function CalendarView({
                   weekdayIdx === 0 && session && 'text-red-500',
                   weekdayIdx === 6 && session && 'text-blue-500',
                   !session && weekdayIdx === 0 && 'text-red-300',
-                  !session && weekdayIdx === 6 && 'text-blue-300'
+                  !session && weekdayIdx === 6 && 'text-blue-300',
+                  isToday && 'text-amber-700'
                 )}
               >
                 {c.day}
@@ -564,6 +647,10 @@ function CalendarView({
 
       <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 text-xs text-gray-600">
         <div className="flex flex-wrap gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded-sm ring-2 ring-amber-400" />
+            오늘
+          </span>
           <span>🟢 빈 슬롯</span>
           <span>⭐ 내 발표</span>
           <span>👤 타인 예약</span>
