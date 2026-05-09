@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowRight,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -190,33 +191,61 @@ export function ScheduleView({
     return true
   }
 
-  const renderSlot = (p: Presentation) => (
-    <SlotCard
-      key={p.id}
-      presentation={p}
-      isMine={p.presenter_id === me.id}
-      presenterName={memberName(p.presenter_id)}
-      isActiveQuarter={isActiveQuarter}
-      onReserve={() => {
-        const s = sessions.find(s => s.id === p.session_id)
-        if (s) handleReserveClick(p, s)
-      }}
-      onCancel={() => doCancel(p)}
-      onUpdateCompany={name => doUpdateCompany(p, name)}
-    />
-  )
+  const renderSlot = (p: Presentation) => {
+    const session = sessions.find(s => s.id === p.session_id)
+    const isPast = session ? session.date < today : false
+    return (
+      <SlotCard
+        key={p.id}
+        presentation={p}
+        isMine={p.presenter_id === me.id}
+        presenterName={memberName(p.presenter_id)}
+        isActiveQuarter={isActiveQuarter}
+        isPast={isPast}
+        onReserve={() => {
+          if (session) handleReserveClick(p, session)
+        }}
+        onCancel={() => doCancel(p)}
+        onUpdateCompany={name => doUpdateCompany(p, name)}
+      />
+    )
+  }
 
   const renderSessionBlock = (session: Session) => {
     const slots = presBySession.get(session.id) ?? []
+    const isPast = session.date < today
     return (
       <section
         key={session.id}
         id={`session-${session.id}`}
-        className="overflow-hidden rounded-2xl border border-gray-200 bg-white"
+        className={cn(
+          'overflow-hidden rounded-2xl border bg-white',
+          session.is_test ? 'border-purple-300' : 'border-gray-200'
+        )}
       >
-        <div className="flex items-baseline justify-between border-b border-gray-100 bg-gray-50 px-4 py-3">
+        <div
+          className={cn(
+            'flex items-baseline justify-between border-b px-4 py-3',
+            session.is_test
+              ? 'border-purple-100 bg-purple-50'
+              : 'border-gray-100 bg-gray-50'
+          )}
+        >
           <div>
-            <div className="text-xs text-gray-500">{session.session_number}회차</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">{session.session_number}회차</span>
+              {session.is_test && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800">
+                  🧪 테스트
+                </span>
+              )}
+              {isPast && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+                  <Check className="h-3 w-3" />
+                  완료
+                </span>
+              )}
+            </div>
             <div className="text-base font-bold text-gray-900">
               {formatDateKR(session.date)}
             </div>
@@ -279,21 +308,54 @@ export function ScheduleView({
       </section>
 
       {/* 내 예약 요약 */}
-      {myReservation && myReservationSession && isActiveQuarter && (
-        <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
-            <Sparkles className="h-4 w-4" />
-            내 예약
-          </div>
-          <div className="mt-2 text-lg font-bold text-amber-900">
-            {formatDateKR(myReservationSession.date)} ·{' '}
-            {myReservationSession.session_number}회차 · 슬롯 {myReservation.slot}
-          </div>
-          {myReservation.company_name && (
-            <div className="text-base text-amber-800">{myReservation.company_name}</div>
-          )}
-        </section>
-      )}
+      {myReservation && myReservationSession && isActiveQuarter && (() => {
+        const isMyResPast = myReservationSession.date < today
+        return (
+          <section
+            className={cn(
+              'rounded-2xl border-2 p-4',
+              isMyResPast
+                ? 'border-gray-300 bg-gray-50'
+                : 'border-amber-300 bg-amber-50'
+            )}
+          >
+            <div
+              className={cn(
+                'flex items-center gap-2 text-sm font-bold',
+                isMyResPast ? 'text-gray-700' : 'text-amber-900'
+              )}
+            >
+              <Sparkles className="h-4 w-4" />
+              내 예약
+              {isMyResPast && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+                  <Check className="h-3 w-3" />
+                  발표 완료
+                </span>
+              )}
+            </div>
+            <div
+              className={cn(
+                'mt-2 text-lg font-bold',
+                isMyResPast ? 'text-gray-800' : 'text-amber-900'
+              )}
+            >
+              {formatDateKR(myReservationSession.date)} ·{' '}
+              {myReservationSession.session_number}회차 · 슬롯 {myReservation.slot}
+            </div>
+            {myReservation.company_name && (
+              <div
+                className={cn(
+                  'text-base',
+                  isMyResPast ? 'text-gray-700' : 'text-amber-800'
+                )}
+              >
+                {myReservation.company_name}
+              </div>
+            )}
+          </section>
+        )
+      })()}
 
       {/* 뷰 토글 */}
       <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
@@ -369,7 +431,14 @@ export function ScheduleView({
       {selectedSession && (
         <BottomSheet onClose={() => setSelectedSessionId(null)}>
           <div className="border-b border-gray-100 px-1 pb-3">
-            <div className="text-xs text-gray-500">{selectedSession.session_number}회차</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">{selectedSession.session_number}회차</span>
+              {selectedSession.is_test && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800">
+                  🧪 테스트
+                </span>
+              )}
+            </div>
             <div className="text-lg font-bold text-gray-900">
               {formatDateKR(selectedSession.date)}
             </div>
@@ -622,7 +691,9 @@ function CalendarView({
               className={cn(
                 'flex aspect-square flex-col items-center justify-start gap-1 rounded-lg border p-1 text-[11px] transition',
                 session
-                  ? 'border-gray-200 bg-white hover:border-green-400'
+                  ? session.is_test
+                    ? 'border-purple-300 bg-purple-50 hover:border-purple-500'
+                    : 'border-gray-200 bg-white hover:border-green-400'
                   : 'border-transparent text-gray-400',
                 isToday && 'ring-2 ring-amber-400 ring-offset-1'
               )}
@@ -655,6 +726,10 @@ function CalendarView({
           <span>⭐ 내 발표</span>
           <span>👤 타인 예약</span>
           <span>🎉 특별 일정</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded-sm border border-purple-300 bg-purple-50" />
+            🧪 테스트
+          </span>
         </div>
       </div>
     </div>
@@ -692,6 +767,7 @@ function SlotCard({
   isMine,
   presenterName,
   isActiveQuarter,
+  isPast,
   onReserve,
   onCancel,
   onUpdateCompany
@@ -700,6 +776,7 @@ function SlotCard({
   isMine: boolean
   presenterName: string
   isActiveQuarter: boolean
+  isPast: boolean
   onReserve: () => void
   onCancel: () => void
   onUpdateCompany: (name: string) => Promise<boolean>
@@ -720,27 +797,53 @@ function SlotCard({
 
   if (isMine) {
     return (
-      <div className="bg-amber-50 px-4 py-4">
-        <div className="flex items-center gap-2 text-base font-bold text-amber-900">
-          <Sparkles className="h-5 w-5 text-amber-600" />
+      <div className={cn('px-4 py-4', isPast ? 'bg-gray-50' : 'bg-amber-50')}>
+        <div
+          className={cn(
+            'flex items-center gap-2 text-base font-bold',
+            isPast ? 'text-gray-700' : 'text-amber-900'
+          )}
+        >
+          <Sparkles
+            className={cn('h-5 w-5', isPast ? 'text-gray-400' : 'text-amber-600')}
+          />
           슬롯 {presentation.slot} · 내 발표
+          {isPast && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+              <Check className="h-3 w-3" />
+              발표 완료
+            </span>
+          )}
         </div>
         {presentation.reserved_at && (
-          <div className="mt-0.5 text-xs text-amber-700">
+          <div
+            className={cn(
+              'mt-0.5 text-xs',
+              isPast ? 'text-gray-500' : 'text-amber-700'
+            )}
+          >
             예약일: {presentation.reserved_at.slice(0, 10)}
           </div>
         )}
-        <CompanyEditor
-          initial={presentation.company_name ?? ''}
-          onSave={onUpdateCompany}
-        />
-        <button
-          type="button"
-          onClick={onCancel}
-          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:border-red-400"
-        >
-          <X className="h-4 w-4" /> 예약 취소
-        </button>
+        {isPast ? (
+          <div className="mt-2 rounded-lg bg-white px-3 py-2 text-base font-semibold text-gray-700">
+            종목: {presentation.company_name || '(미입력)'}
+          </div>
+        ) : (
+          <>
+            <CompanyEditor
+              initial={presentation.company_name ?? ''}
+              onSave={onUpdateCompany}
+            />
+            <button
+              type="button"
+              onClick={onCancel}
+              className="mt-3 inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:border-red-400"
+            >
+              <X className="h-4 w-4" /> 예약 취소
+            </button>
+          </>
+        )}
       </div>
     )
   }
@@ -749,8 +852,15 @@ function SlotCard({
     return (
       <div className="bg-white px-4 py-4">
         <div className="text-sm font-semibold text-gray-700">슬롯 {presentation.slot}</div>
-        <div className="mt-0.5 text-base font-bold text-green-700">🟢 빈 슬롯</div>
-        {isActiveQuarter ? (
+        <div
+          className={cn(
+            'mt-0.5 text-base font-bold',
+            isPast ? 'text-gray-400' : 'text-green-700'
+          )}
+        >
+          {isPast ? '— 빈 슬롯 (회차 종료)' : '🟢 빈 슬롯'}
+        </div>
+        {isPast ? null : isActiveQuarter ? (
           <Button
             type="button"
             onClick={onReserve}
@@ -773,7 +883,9 @@ function SlotCard({
         👤 {presenterName}
         {presentation.company_name ? ` · ${presentation.company_name}` : ''}
       </div>
-      <div className="mt-1 text-xs text-gray-500">다른 분이 예약하셨습니다 (변경 불가)</div>
+      <div className="mt-1 text-xs text-gray-500">
+        {isPast ? '발표 완료' : '다른 분이 예약하셨습니다 (변경 불가)'}
+      </div>
     </div>
   )
 }
