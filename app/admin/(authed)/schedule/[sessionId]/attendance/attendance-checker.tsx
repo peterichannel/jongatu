@@ -2,8 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, ShieldCheck } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import type { Member, Presentation, Session } from '@/lib/types'
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused'
@@ -14,7 +12,6 @@ type AttendanceRow = {
   member_id: string
   status: AttendanceStatus
   checked_in_at: string | null
-  is_confirmed: boolean
 }
 
 type PreAttendanceRow = {
@@ -87,8 +84,6 @@ export function AttendanceChecker({
     return set
   }, [presentations])
 
-  const anyConfirmed = Object.values(attendances).some(a => a?.is_confirmed)
-
   const counts: Record<AttendanceStatus, number> = {
     present: 0,
     late: 0,
@@ -103,7 +98,6 @@ export function AttendanceChecker({
   }
 
   const handleClick = async (memberId: string, status: AttendanceStatus) => {
-    if (anyConfirmed) return
     setError('')
     const previous = attendances[memberId]
     if (previous?.status === status) return
@@ -116,8 +110,7 @@ export function AttendanceChecker({
         session_id: session.id,
         member_id: memberId,
         status,
-        checked_in_at: previous?.checked_in_at ?? new Date().toISOString(),
-        is_confirmed: false
+        checked_in_at: previous?.checked_in_at ?? new Date().toISOString()
       }
     }))
 
@@ -147,12 +140,9 @@ export function AttendanceChecker({
         <Counter label="미체크" value={unchecked} color="text-gray-400" />
       </div>
 
-      {anyConfirmed && (
-        <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-900">
-          <ShieldCheck className="h-5 w-5" />
-          출결이 확정되었습니다. 더 이상 변경할 수 없습니다.
-        </div>
-      )}
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+        체크 즉시 페널티가 보증금에서 차감/환원됩니다. 잘못 체크했다면 다시 누르면 정정됩니다.
+      </div>
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
@@ -169,11 +159,7 @@ export function AttendanceChecker({
           return (
             <div
               key={m.id}
-              className={`rounded-xl border p-3 ${
-                current?.is_confirmed
-                  ? 'border-gray-200 bg-gray-50'
-                  : 'border-gray-200 bg-white'
-              }`}
+              className="rounded-xl border border-gray-200 bg-white p-3"
             >
               <div className="mb-2 flex items-center justify-between">
                 <div>
@@ -184,7 +170,6 @@ export function AttendanceChecker({
                         ⭐ 발표
                       </span>
                     )}
-                    {current?.is_confirmed && <Lock className="h-3.5 w-3.5 text-gray-400" />}
                   </div>
                   <div className="mt-0.5 text-xs text-gray-500">
                     {pre
@@ -203,7 +188,7 @@ export function AttendanceChecker({
                     <button
                       key={s}
                       type="button"
-                      disabled={anyConfirmed || pendingMember === m.id}
+                      disabled={pendingMember === m.id}
                       onClick={() => handleClick(m.id, s)}
                       className={`rounded-lg border-2 py-3 text-base font-bold transition disabled:opacity-50 ${
                         active ? style.active : style.inactive
@@ -218,22 +203,6 @@ export function AttendanceChecker({
           )
         })}
       </div>
-
-      {/* 출결 확정 진입 */}
-      {!anyConfirmed && (
-        <div className="rounded-2xl border border-gray-200 bg-white p-4">
-          <div className="mb-2 text-sm text-gray-700">
-            모든 멤버 체크가 끝나면 출결을 확정하세요. 확정 시 페널티가 자동으로 적용됩니다.
-          </div>
-          {unchecked > 0 ? (
-            <Button disabled className="w-full">
-              {unchecked}명 체크 후 확정 가능
-            </Button>
-          ) : (
-            <ConfirmAttendanceButton sessionId={session.id} />
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -244,40 +213,5 @@ function Counter({ label, value, color }: { label: string; value: number; color:
       <div className="text-xs text-gray-500">{label}</div>
       <div className={`text-xl font-bold ${color}`}>{value}</div>
     </div>
-  )
-}
-
-function ConfirmAttendanceButton({ sessionId }: { sessionId: string }) {
-  const router = useRouter()
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState('')
-
-  const handleConfirm = async () => {
-    if (
-      !confirm(
-        '출결을 확정하시겠습니까?\n\n페널티 (결석/지각/사전참석 미응답/발표 미수행)가 자동으로 보증금에서 차감되고 운영비에 입금됩니다. 확정 후에는 변경할 수 없습니다.'
-      )
-    )
-      return
-    setPending(true)
-    setError('')
-    const r = await fetch(`/api/admin/sessions/${sessionId}/confirm`, { method: 'POST' })
-    setPending(false)
-    if (!r.ok) {
-      const j = await r.json().catch(() => ({}))
-      setError(j.error || '확정 실패')
-      return
-    }
-    router.refresh()
-  }
-
-  return (
-    <>
-      <Button onClick={handleConfirm} disabled={pending} variant="primary" className="w-full">
-        <ShieldCheck className="h-5 w-5" />
-        {pending ? '확정 중...' : '출결 확정 + 페널티 적용'}
-      </Button>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-    </>
   )
 }

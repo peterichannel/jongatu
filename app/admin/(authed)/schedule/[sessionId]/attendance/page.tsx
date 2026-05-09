@@ -22,7 +22,6 @@ type AttendanceRow = {
   member_id: string
   status: 'present' | 'late' | 'absent' | 'excused'
   checked_in_at: string | null
-  is_confirmed: boolean
 }
 
 type PreAttendanceRow = {

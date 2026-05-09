@@ -46,7 +46,6 @@ export default async function HomePage() {
   let myAttendanceToday = false
   let evalUnfinishedCount = 0
   let unresponded: { id: string; name: string }[] = []
-  let confirmTarget: Session | null = null
   let myBalance: number | null = null
   let myAttendanceRate: number | null = null
 
@@ -201,23 +200,6 @@ export default async function HomePage() {
           myAttendanceRate =
             total > 0 ? Math.round((attended / total) * 1000) / 10 : null
         }
-
-        // 운영자: 출결 확정 대상 회차 (미확정인 가장 최근 종료 회차)
-        if (me.is_admin) {
-          // 우선순위: 오늘 회차(20:00 이후) → 그 다음 평가 대상 회차(어제 이전 최근)
-          const candidate =
-            todaySession && seoulMinutesOfDay() >= 20 * 60 ? todaySession : evalSession
-          if (candidate) {
-            const { data: confirmed } = await supabase
-              .from('attendances')
-              .select('id')
-              .eq('session_id', candidate.id)
-              .eq('is_confirmed', true)
-              .limit(1)
-            const isConfirmed = (confirmed ?? []).length > 0
-            if (!isConfirmed) confirmTarget = candidate
-          }
-        }
       }
     }
   } catch (e) {
@@ -256,7 +238,6 @@ export default async function HomePage() {
           myAttendanceToday={myAttendanceToday}
           evalUnfinishedCount={evalUnfinishedCount}
           unresponded={unresponded}
-          confirmTarget={confirmTarget}
           myBalance={myBalance}
           myAttendanceRate={myAttendanceRate}
         />
@@ -278,7 +259,6 @@ function SignedInView({
   myAttendanceToday,
   evalUnfinishedCount,
   unresponded,
-  confirmTarget,
   myBalance,
   myAttendanceRate
 }: {
@@ -292,7 +272,6 @@ function SignedInView({
   myAttendanceToday: boolean
   evalUnfinishedCount: number
   unresponded: { id: string; name: string }[]
-  confirmTarget: Session | null
   myBalance: number | null
   myAttendanceRate: number | null
 }) {
@@ -450,9 +429,6 @@ function SignedInView({
             nowMinutes < NOTICE_WINDOW_END && (
               <CheckInNoticeCard session={todaySession} />
             )}
-
-          {/* 출결 확정 알림 — 미확정 회차가 있을 때 */}
-          {confirmTarget && <ConfirmAttendanceCard session={confirmTarget} />}
         </>
       )}
 
@@ -601,30 +577,6 @@ function CheckInNoticeCard({ session }: { session: Session }) {
       </pre>
       <CopyShareButtons message={message} shareTitle="종가투 출석 안내" />
     </section>
-  )
-}
-
-function ConfirmAttendanceCard({ session }: { session: Session }) {
-  return (
-    <Link
-      href={`/admin/schedule/${session.id}/attendance`}
-      className="mb-3 flex items-center justify-between rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 transition hover:bg-amber-100"
-    >
-      <div className="flex items-start gap-3">
-        <span className="text-xl" aria-hidden>
-          ⏰
-        </span>
-        <div>
-          <div className="text-base font-bold text-amber-900">
-            출결 확정 + 페널티 적용 필요
-          </div>
-          <div className="mt-0.5 text-xs text-amber-800">
-            {formatDateKR(session.date)} #{session.session_number}회차 — 미확정 상태입니다
-          </div>
-        </div>
-      </div>
-      <ChevronRight className="h-5 w-5 text-amber-700" />
-    </Link>
   )
 }
 

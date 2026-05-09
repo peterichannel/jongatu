@@ -100,6 +100,13 @@ export async function POST(req: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // 즉시 페널티 동기화 (지각이면 -3,000원 차감, 출석은 무차감 + 기존 페널티 reversal)
+  const { error: penaltyErr } = await supabase.rpc('apply_attendance_penalty', {
+    p_session_id: session_id,
+    p_member_id: me.id
+  })
+  if (penaltyErr) return NextResponse.json({ error: penaltyErr.message }, { status: 500 })
+
   return NextResponse.json({
     ok: true,
     status,

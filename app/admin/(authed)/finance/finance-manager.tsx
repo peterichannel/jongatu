@@ -342,7 +342,7 @@ function FundSection({
         </ul>
       )}
       <p className="text-xs text-gray-500">
-        ⓘ &lsquo;페널티&rsquo; 카테고리는 출결 확정 시 자동 입력되며 수정/삭제할 수 없습니다.
+        ⓘ &lsquo;페널티&rsquo; 카테고리는 자동 입력되며 수정/삭제할 수 없습니다.
       </p>
     </div>
   )

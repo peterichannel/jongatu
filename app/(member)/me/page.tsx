@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import {
-  AlertCircle,
   CalendarCheck,
   Mic,
   ShieldCheck,
@@ -38,14 +37,6 @@ function formatDateKR(d: string) {
   if (!y) return d
   const dt = new Date(Date.UTC(y, m - 1, day))
   return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
-}
-
-type PendingPreview = {
-  attendanceId: string
-  sessionNumber: number
-  date: string
-  status: 'late' | 'absent'
-  amount: number
 }
 
 type PresentationHistoryItem = {
@@ -106,7 +97,6 @@ export default async function MePage({
   let transactions: { id: string; amount: number; reason: string; created_at: string }[] = []
   const attendanceCounts = { present: 0, late: 0, absent: 0, excused: 0 }
   let normalSessionCount = 0
-  const pendingPreviews: PendingPreview[] = []
   let presentationHistory: PresentationHistoryItem[] = []
   let receivedEvalGroups: ReceivedEvalGroup[] = []
   let overallEvalAvg: number | null = null
@@ -254,44 +244,6 @@ export default async function MePage({
           const k = a.status as keyof typeof attendanceCounts
           if (k in attendanceCounts) attendanceCounts[k] += 1
         }
-
-        // 미확정 attendances → 확정 시 적용될 페널티 프리뷰 (late/absent 만, is_test 제외)
-        const { data: rules } = await supabase
-          .from('penalty_rules')
-          .select('rule_key, amount')
-          .in('rule_key', ['late', 'absent'])
-          .eq('is_active', true)
-        const ruleMap = new Map<string, number>(
-          (rules ?? []).map(r => [r.rule_key as string, r.amount as number])
-        )
-
-        const { data: pending } = await supabase
-          .from('attendances')
-          .select(
-            'id, status, sessions:session_id(id, date, session_number, type, is_test)'
-          )
-          .eq('member_id', memberId)
-          .eq('is_confirmed', false)
-          .in('session_id', normalSessionIds)
-
-        for (const row of pending ?? []) {
-          const sRaw = row.sessions as unknown
-          const s = (Array.isArray(sRaw) ? sRaw[0] : sRaw) as
-            | { date: string; session_number: number; type: string; is_test: boolean }
-            | null
-            | undefined
-          if (!s || s.type !== 'normal' || s.is_test) continue
-          if (row.status !== 'late' && row.status !== 'absent') continue
-          const amt = ruleMap.get(row.status) ?? 0
-          pendingPreviews.push({
-            attendanceId: row.id as string,
-            sessionNumber: s.session_number,
-            date: s.date,
-            status: row.status as 'late' | 'absent',
-            amount: amt
-          })
-        }
-        pendingPreviews.sort((a, b) => a.date.localeCompare(b.date))
       }
     }
   } catch (e) {
@@ -318,7 +270,6 @@ export default async function MePage({
   // 출석률 = (출석 + 지각) / 진행된 정상 회차. 진행된 회차 = 체크 기록이 있는 회차.
   const attendanceRate =
     totalAttendance > 0 ? Math.round((attended / totalAttendance) * 1000) / 10 : null
-  const pendingTotal = pendingPreviews.reduce((sum, p) => sum + p.amount, 0)
 
   return (
     <main className="flex-1 px-5 py-6">
@@ -385,41 +336,7 @@ export default async function MePage({
         )}
       </section>
 
-      {/* 확정 대기 페널티 프리뷰 */}
-      {pendingPreviews.length > 0 && (
-        <section className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-bold text-amber-900">
-            <AlertCircle className="h-4 w-4" />
-            확정 대기 ({pendingPreviews.length}건)
-          </div>
-          <p className="mt-1 text-xs text-amber-800">
-            아래 항목은 운영자가 출결을 확정하면 보증금에서 차감됩니다.
-          </p>
-          <ul className="mt-3 space-y-1.5 text-sm text-amber-900">
-            {pendingPreviews.map(p => (
-              <li key={p.attendanceId} className="flex items-baseline justify-between gap-3">
-                <span>
-                  {formatDateKR(p.date)} #{p.sessionNumber} ·{' '}
-                  {p.status === 'late' ? '지각' : '결석'}
-                </span>
-                <span className="font-bold text-red-700">{formatKRW(p.amount)}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="mt-3 flex items-baseline justify-between border-t border-amber-200 pt-3">
-            <span className="text-sm font-bold text-amber-900">예상 추가 차감</span>
-            <span className="text-lg font-bold text-red-700">{formatKRW(pendingTotal)}</span>
-          </div>
-          <div className="mt-1 flex items-baseline justify-between">
-            <span className="text-xs text-amber-800">확정 후 예상 잔액</span>
-            <span className="text-sm font-bold text-amber-900">
-              {formatKRW(currentBalance + pendingTotal)}
-            </span>
-          </div>
-        </section>
-      )}
-
-      {/* 출석 통계 + 출석률 */}
+{/* 출석 통계 + 출석률 */}
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5">
         <div className="mb-3 flex items-baseline justify-between">
           <div className="flex items-center gap-2 text-sm font-bold text-gray-700">

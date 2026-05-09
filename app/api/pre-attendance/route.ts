@@ -79,5 +79,12 @@ export async function POST(req: Request) {
     )
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 })
 
+  // 사전 응답 즉시 페널티 동기화 (이미 적용됐던 사전참석 미응답 페널티 reversal)
+  const { error: penaltyErr } = await supabase.rpc('apply_attendance_penalty', {
+    p_session_id: session_id,
+    p_member_id: me.id
+  })
+  if (penaltyErr) return NextResponse.json({ error: penaltyErr.message }, { status: 500 })
+
   return NextResponse.json({ ok: true })
 }
