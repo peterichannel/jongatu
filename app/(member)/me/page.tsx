@@ -1,5 +1,13 @@
 import Link from 'next/link'
-import { AlertCircle, CalendarCheck, Mic, ShieldCheck, User, Wallet } from 'lucide-react'
+import {
+  AlertCircle,
+  CalendarCheck,
+  Mic,
+  ShieldCheck,
+  Star,
+  User,
+  Wallet
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
@@ -48,6 +56,20 @@ type PresentationHistoryItem = {
   label: string
 }
 
+type ReceivedEvalGroup = {
+  presentationId: string
+  date: string
+  label: string
+  count: number
+  avgTotal: number
+  avgPrep: number
+  avgDelivery: number
+  avgQna: number
+  avgTime: number
+  avgAttract: number
+  feedbacks: string[]
+}
+
 export default async function MePage({
   searchParams
 }: {
@@ -86,6 +108,9 @@ export default async function MePage({
   let normalSessionCount = 0
   const pendingPreviews: PendingPreview[] = []
   let presentationHistory: PresentationHistoryItem[] = []
+  let receivedEvalGroups: ReceivedEvalGroup[] = []
+  let overallEvalAvg: number | null = null
+  let overallEvalCount = 0
 
   try {
     const supabase = supabaseAdmin()
@@ -128,6 +153,59 @@ export default async function MePage({
       })
     }
     presentationHistory.sort((a, b) => b.date.localeCompare(a.date))
+
+    // 받은 평가: 본인 발표 슬롯의 evaluations 그룹핑
+    if (presentationHistory.length > 0) {
+      const ids = presentationHistory.map(p => p.presentationId)
+      const { data: evals } = await supabase
+        .from('evaluations')
+        .select(
+          'presentation_id, preparation, delivery, qna, time_management, attractiveness, feedback'
+        )
+        .in('presentation_id', ids)
+
+      const groupMap = new Map<string, typeof evals>()
+      for (const e of evals ?? []) {
+        const arr = groupMap.get(e.presentation_id as string) ?? []
+        arr.push(e)
+        groupMap.set(e.presentation_id as string, arr)
+      }
+
+      let totalSum = 0
+      let totalSlots = 0
+
+      for (const p of presentationHistory) {
+        const group = groupMap.get(p.presentationId) ?? []
+        if (group.length === 0) continue
+        const cnt = group.length
+        const sumPrep = group.reduce((s, e) => s + (e.preparation as number), 0)
+        const sumDel = group.reduce((s, e) => s + (e.delivery as number), 0)
+        const sumQna = group.reduce((s, e) => s + (e.qna as number), 0)
+        const sumTime = group.reduce((s, e) => s + (e.time_management as number), 0)
+        const sumAtt = group.reduce((s, e) => s + (e.attractiveness as number), 0)
+        const round1 = (n: number) => Math.round(n * 10) / 10
+        const total = sumPrep + sumDel + sumQna + sumTime + sumAtt
+        receivedEvalGroups.push({
+          presentationId: p.presentationId,
+          date: p.date,
+          label: p.label,
+          count: cnt,
+          avgTotal: round1(total / (cnt * 5)),
+          avgPrep: round1(sumPrep / cnt),
+          avgDelivery: round1(sumDel / cnt),
+          avgQna: round1(sumQna / cnt),
+          avgTime: round1(sumTime / cnt),
+          avgAttract: round1(sumAtt / cnt),
+          feedbacks: group
+            .map(e => (e.feedback as string | null) ?? '')
+            .filter(f => f.trim().length > 0)
+        })
+        totalSum += total
+        totalSlots += cnt * 5
+        overallEvalCount += cnt
+      }
+      if (totalSlots > 0) overallEvalAvg = Math.round((totalSum / totalSlots) * 10) / 10
+    }
 
     const requested = searchParams.quarter
     targetQuarter =
@@ -402,6 +480,86 @@ export default async function MePage({
           </ul>
         )}
       </section>
+
+      {/* 받은 평가 — 발표 이력에 대한 평가 모음 */}
+      <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-bold text-gray-700">
+            <Star className="h-4 w-4" />
+            받은 평가
+          </div>
+          {overallEvalAvg !== null && (
+            <div className="text-right">
+              <div className="text-xs text-gray-500">누적 평균</div>
+              <div className="text-lg font-bold text-amber-700">⭐ {overallEvalAvg}</div>
+            </div>
+          )}
+        </div>
+        {receivedEvalGroups.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            아직 받은 평가가 없습니다.
+            {presentationHistory.length > 0 ? ' (평가 미응답 또는 운영자 미공개)' : ''}
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {receivedEvalGroups.map(g => (
+              <li
+                key={g.presentationId}
+                className="overflow-hidden rounded-xl border border-gray-200"
+              >
+                <details className="group">
+                  <summary className="flex cursor-pointer items-center justify-between gap-3 bg-gray-50 px-3 py-3 text-sm">
+                    <span className="text-gray-700">
+                      {formatDateKR(g.date)} · {g.label}
+                    </span>
+                    <span className="font-bold text-amber-700">
+                      ⭐ {g.avgTotal}{' '}
+                      <span className="text-xs font-normal text-gray-500">
+                        ({g.count}명)
+                      </span>
+                    </span>
+                  </summary>
+                  <div className="space-y-3 border-t border-gray-100 bg-white p-3 text-sm">
+                    <div className="grid grid-cols-5 gap-2 text-center">
+                      <ScoreCell label="준비" value={g.avgPrep} />
+                      <ScoreCell label="진행" value={g.avgDelivery} />
+                      <ScoreCell label="Q&A" value={g.avgQna} />
+                      <ScoreCell label="시간" value={g.avgTime} />
+                      <ScoreCell label="매력도" value={g.avgAttract} />
+                    </div>
+                    {g.feedbacks.length > 0 && (
+                      <div>
+                        <div className="mb-1 text-xs font-semibold text-gray-600">
+                          종합 피드백 ({g.feedbacks.length}건)
+                        </div>
+                        <ul className="space-y-2 text-sm leading-relaxed text-gray-800">
+                          {g.feedbacks.map((f, i) => (
+                            <li
+                              key={i}
+                              className="rounded-lg bg-gray-50 p-2 whitespace-pre-wrap"
+                            >
+                              {f}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
+  )
+}
+
+function ScoreCell({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="text-[10px] text-gray-500">{label}</div>
+      <div className="text-sm font-bold text-gray-900">{value}</div>
+    </div>
   )
 }
