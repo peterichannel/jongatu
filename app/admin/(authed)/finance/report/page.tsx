@@ -30,13 +30,13 @@ export default async function FinanceReportPage() {
   let envError: string | null = null
 
   try {
-    const { data: q, error: qErr } = await supabase
-      .from('quarters')
+    const { data: h, error: hErr } = await supabase
+      .from('halves')
       .select('*')
       .eq('is_active', true)
       .maybeSingle()
-    if (qErr) throw new Error(qErr.message)
-    if (!q) {
+    if (hErr) throw new Error(hErr.message)
+    if (!h) {
       return (
         <div>
           <Link
@@ -46,7 +46,7 @@ export default async function FinanceReportPage() {
             <ChevronLeft className="h-4 w-4" /> 정산
           </Link>
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            활성 분기가 없습니다.
+            활성 반기가 없습니다.
           </div>
         </div>
       )
@@ -63,7 +63,7 @@ export default async function FinanceReportPage() {
       { data: evaluations }
     ] = await Promise.all([
       supabase.from('members').select('*').order('name'),
-      supabase.from('deposits').select('*').eq('quarter_id', q.id),
+      supabase.from('deposits').select('*').eq('half_id', h.id),
       supabase
         .from('deposit_transactions')
         .select('id, deposit_id, amount, reason, created_at')
@@ -71,13 +71,14 @@ export default async function FinanceReportPage() {
       supabase
         .from('fund_transactions')
         .select('*')
-        .eq('quarter_id', q.id)
+        .eq('half_id', h.id)
         .order('date', { ascending: true }),
       supabase
         .from('sessions')
         .select('*')
-        .eq('quarter_id', q.id)
-        .order('session_number'),
+        .gte('date', h.start_date)
+        .lte('date', h.end_date)
+        .order('date'),
       supabase.from('presentations').select('*'),
       supabase.from('attendances').select('*'),
       supabase.from('evaluations').select('*')
@@ -108,11 +109,10 @@ export default async function FinanceReportPage() {
       initial: number
       balance: number
       diff: number
-      counts: { absent: number; late: number; no_pre: number; no_present: number }
+      counts: { absent: number; late: number; no_present: number }
       attendance: { present: number; late: number; absent: number; excused: number }
       presentationsCount: number
       avgScore: number | null
-      // 다음 분기 신청금액
       nextOperating: number
       nextDeposit: number
       nextApplication: number
@@ -122,14 +122,13 @@ export default async function FinanceReportPage() {
     const rows: MemberRow[] = []
     for (const m of allMembers) {
       const d = depositByMember.get(m.id)
-      const initial = d?.initial_amount ?? q.default_deposit
-      const balance = d?.current_balance ?? q.default_deposit
+      const initial = d?.initial_amount ?? h.default_deposit
+      const balance = d?.current_balance ?? h.default_deposit
       const txs = d ? depositTxByDeposit.get(d.id) ?? [] : []
-      const counts = { absent: 0, late: 0, no_pre: 0, no_present: 0 }
+      const counts = { absent: 0, late: 0, no_present: 0 }
       for (const t of txs) {
         if (t.reason.includes('결석')) counts.absent += 1
         else if (t.reason.includes('지각')) counts.late += 1
-        else if (t.reason.includes('사전참석')) counts.no_pre += 1
         else if (t.reason.includes('발표')) counts.no_present += 1
       }
 
@@ -158,11 +157,9 @@ export default async function FinanceReportPage() {
             ) / memberEvals.length
           : null
 
-      // 다음 분기 신청금액 계산
-      // 활성 멤버: (운영비 + 분기 보증금 목표) - 잔액 → 0 미만이면 환불(차액)
-      // 탈퇴 멤버: 잔액 전액 환불
-      const opFee = q.operating_fee ?? 30000
-      const targetDeposit = q.default_deposit
+      // 다음 반기 신청금액 계산
+      const opFee = h.default_operating_fee ?? 45000
+      const targetDeposit = h.default_deposit
       const target = opFee + targetDeposit
       let nextOperating = 0
       let nextDeposit = 0
@@ -241,15 +238,15 @@ export default async function FinanceReportPage() {
         <div className="space-y-8 rounded-2xl border border-gray-200 bg-white p-6 print:rounded-none print:border-0 print:p-0">
           <header className="border-b border-gray-300 pb-4">
             <div className="text-xs text-gray-500">종로 가치 투자 스터디 (JVI)</div>
-            <h1 className="mt-1 text-2xl font-bold">{q.name} 분기 정산서</h1>
+            <h1 className="mt-1 text-2xl font-bold">{h.name} 반기 정산서</h1>
             <div className="mt-1 text-sm text-gray-600">
-              {q.start_date} ~ {q.end_date}
+              {h.start_date} ~ {h.end_date}
             </div>
           </header>
 
-          {/* 분기 요약 */}
+          {/* 반기 요약 */}
           <section className="page-keep">
-            <h2 className="mb-3 text-lg font-bold">분기 요약</h2>
+            <h2 className="mb-3 text-lg font-bold">반기 요약</h2>
             <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
               <SummaryBox label="회차 수" value={`${normalSessions.length}회`} />
               <SummaryBox label="발표 수" value={`${presArr.length}건`} />
@@ -270,7 +267,6 @@ export default async function FinanceReportPage() {
                   <th className="border border-gray-300 px-2 py-2 text-right">차감</th>
                   <th className="border border-gray-300 px-2 py-2 text-center">결석</th>
                   <th className="border border-gray-300 px-2 py-2 text-center">지각</th>
-                  <th className="border border-gray-300 px-2 py-2 text-center">사전미응답</th>
                   <th className="border border-gray-300 px-2 py-2 text-center">발표미수행</th>
                 </tr>
               </thead>
@@ -301,9 +297,6 @@ export default async function FinanceReportPage() {
                       {r.counts.late || '-'}
                     </td>
                     <td className="border border-gray-300 px-2 py-1.5 text-center">
-                      {r.counts.no_pre || '-'}
-                    </td>
-                    <td className="border border-gray-300 px-2 py-1.5 text-center">
                       {r.counts.no_present || '-'}
                     </td>
                   </tr>
@@ -326,17 +319,16 @@ export default async function FinanceReportPage() {
                   <td className="border border-gray-300 px-2 py-1.5 text-center">-</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-center">-</td>
                   <td className="border border-gray-300 px-2 py-1.5 text-center">-</td>
-                  <td className="border border-gray-300 px-2 py-1.5 text-center">-</td>
                 </tr>
               </tbody>
             </table>
           </section>
 
-          {/* 다음 분기 신청금액 */}
+          {/* 다음 반기 신청금액 */}
           <section className="page-keep">
-            <h2 className="mb-1 text-lg font-bold">다음 분기 신청금액</h2>
+            <h2 className="mb-1 text-lg font-bold">다음 반기 신청금액</h2>
             <p className="mb-3 text-xs text-gray-600">
-              산출식: (운영비 {formatKRW(q.operating_fee ?? 30000)} + 보증금 {formatKRW(q.default_deposit)}) - 현재 잔액. 잔액이 더 많으면 환불.
+              산출식: (운영비 {formatKRW(h.default_operating_fee ?? 45000)} + 보증금 {formatKRW(h.default_deposit)}) - 현재 잔액. 잔액이 더 많으면 환불.
             </p>
             <table className="w-full text-sm">
               <thead className="bg-gray-100 text-left">

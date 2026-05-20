@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid body' }, { status: 400 })
   }
 
-  const quarter_id = typeof body.quarter_id === 'string' ? body.quarter_id : ''
+  const half_id = typeof body.half_id === 'string' ? body.half_id : ''
   const amount =
     typeof body.amount === 'number' && Number.isFinite(body.amount)
       ? Math.floor(body.amount)
@@ -33,14 +33,14 @@ export async function POST(req: Request) {
       : null
   const date = typeof body.date === 'string' && body.date ? body.date : ''
 
-  if (!quarter_id || !date || !VALID_CATEGORIES.has(category) || !Number.isFinite(amount) || amount === 0) {
+  if (!half_id || !date || !VALID_CATEGORIES.has(category) || !Number.isFinite(amount) || amount === 0) {
     return NextResponse.json({ error: 'invalid input' }, { status: 400 })
   }
 
   const supabase = supabaseAdmin()
   const { data, error } = await supabase
     .from('fund_transactions')
-    .insert({ quarter_id, amount, category, description, date })
+    .insert({ half_id, amount, category, description, date })
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

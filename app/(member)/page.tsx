@@ -171,14 +171,21 @@ export default async function HomePage() {
             .map(m => ({ id: m.id, name: m.name }))
         }
 
-        // 본인 미리보기: 보증금 잔액 + 활성 분기 출석률
-        const { data: deposit } = await supabase
-          .from('deposits')
-          .select('current_balance')
-          .eq('member_id', me.id)
-          .eq('quarter_id', q.id)
+        // 본인 미리보기: 보증금 잔액 (활성 반기 기준) + 활성 분기 출석률
+        const { data: activeHalf } = await supabase
+          .from('halves')
+          .select('id')
+          .eq('is_active', true)
           .maybeSingle()
-        if (deposit) myBalance = deposit.current_balance
+        if (activeHalf) {
+          const { data: deposit } = await supabase
+            .from('deposits')
+            .select('current_balance')
+            .eq('member_id', me.id)
+            .eq('half_id', activeHalf.id)
+            .maybeSingle()
+          if (deposit) myBalance = deposit.current_balance
+        }
 
         const { data: qSessions } = await supabase
           .from('sessions')
@@ -525,32 +532,31 @@ function UnrespondedReminderCard({
   const names = unresponded.map(u => u.name).join(', ')
   const urlLine = APP_URL ? `\n👉 ${APP_URL}/attendance` : ''
   const message = [
-    '종가투 사전참석 마감 임박합니다 🙏',
+    '종가투 사전참석 안내드립니다 🙏',
     '',
-    '아직 답변 안하신 분:',
+    '인원 파악을 위해 아래 분들도 답변 부탁드립니다:',
     names,
     '',
-    '오늘 자정까지 부탁드립니다.' + urlLine
+    '편하실 때 한 번씩만 눌러주세요.' + urlLine
   ].join('\n')
 
   return (
-    <section className="mb-3 rounded-2xl border-2 border-red-300 bg-red-50 p-4">
+    <section className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
       <div className="flex items-center justify-between">
-        <div className="text-sm font-bold text-red-900">📢 사전참석 미응답자 재안내</div>
-        <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">
+        <div className="text-sm font-bold text-amber-900">📢 사전참석 인원 파악 부탁</div>
+        <span className="rounded-full bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white">
           D-1 · {unresponded.length}명 미응답
         </span>
       </div>
-      <p className="mt-1 text-xs text-red-800">
-        {session.session_number}회차 마감 임박. 단톡방에 복사해 보내주세요.
+      <p className="mt-1 text-xs text-amber-800">
+        {session.session_number}회차 인원 파악을 위해 단톡방에 복사해 보내주세요.
       </p>
-      <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-red-200 bg-white p-3 text-sm leading-relaxed text-gray-800">
+      <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-amber-200 bg-white p-3 text-sm leading-relaxed text-gray-800">
 {message}
       </pre>
       <CopyShareButtons
         message={message}
-        shareTitle="종가투 사전참석 마감 임박"
-        variant="danger"
+        shareTitle="종가투 사전참석 인원 파악"
       />
     </section>
   )

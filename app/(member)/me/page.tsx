@@ -11,9 +11,9 @@ import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
 import { formatKRW } from '@/lib/utils'
-import type { Quarter } from '@/lib/types'
+import type { Half } from '@/lib/types'
 import { TransactionList } from './transaction-list'
-import { QuarterSelector } from './quarter-selector'
+import { HalfSelector } from './quarter-selector'
 
 export const revalidate = 0
 
@@ -64,7 +64,7 @@ type ReceivedEvalGroup = {
 export default async function MePage({
   searchParams
 }: {
-  searchParams: { quarter?: string }
+  searchParams: { half?: string }
 }) {
   const me = await getAuthedMember()
 
@@ -90,8 +90,8 @@ export default async function MePage({
   const memberId = me.id
   const memberName = me.name
   let envError: string | null = null
-  let quarters: Quarter[] = []
-  let targetQuarter: Quarter | null = null
+  let halves: Half[] = []
+  let targetHalf: Half | null = null
   let initialAmount = 0
   let currentBalance = 0
   let transactions: { id: string; amount: number; reason: string; created_at: string }[] = []
@@ -104,12 +104,12 @@ export default async function MePage({
   try {
     const supabase = supabaseAdmin()
 
-    const { data: qs, error: qErr } = await supabase
-      .from('quarters')
+    const { data: hs, error: hErr } = await supabase
+      .from('halves')
       .select('*')
       .order('start_date', { ascending: false })
-    if (qErr) throw new Error(qErr.message)
-    quarters = (qs ?? []) as Quarter[]
+    if (hErr) throw new Error(hErr.message)
+    halves = (hs ?? []) as Half[]
 
     // 발표 이력 — 본인이 발표자였던 모든 회차 (분기 무관)
     const { data: pres } = await supabase
@@ -195,19 +195,19 @@ export default async function MePage({
       if (totalSlots > 0) overallEvalAvg = Math.round((totalSum / totalSlots) * 10) / 10
     }
 
-    const requested = searchParams.quarter
-    targetQuarter =
-      (requested && quarters.find(q => q.id === requested)) ||
-      quarters.find(q => q.is_active) ||
-      quarters[0] ||
+    const requested = searchParams.half
+    targetHalf =
+      (requested && halves.find(h => h.id === requested)) ||
+      halves.find(h => h.is_active) ||
+      halves[0] ||
       null
 
-    if (targetQuarter) {
+    if (targetHalf) {
       const { data: deposit } = await supabase
         .from('deposits')
         .select('*')
         .eq('member_id', memberId)
-        .eq('quarter_id', targetQuarter.id)
+        .eq('half_id', targetHalf.id)
         .maybeSingle()
       if (deposit) {
         initialAmount = deposit.initial_amount
@@ -219,15 +219,16 @@ export default async function MePage({
           .order('created_at', { ascending: false })
         transactions = tx ?? []
       } else {
-        initialAmount = targetQuarter.default_deposit
-        currentBalance = targetQuarter.default_deposit
+        initialAmount = targetHalf.default_deposit
+        currentBalance = targetHalf.default_deposit
       }
 
-      const { data: quarterSessions } = await supabase
+      const { data: halfSessions } = await supabase
         .from('sessions')
         .select('id, type, is_test')
-        .eq('quarter_id', targetQuarter.id)
-      const normalSessionIds = (quarterSessions ?? [])
+        .gte('date', targetHalf.start_date)
+        .lte('date', targetHalf.end_date)
+      const normalSessionIds = (halfSessions ?? [])
         .filter(s => s.type === 'normal' && !s.is_test)
         .map(s => s.id)
       normalSessionCount = normalSessionIds.length
@@ -272,8 +273,8 @@ export default async function MePage({
   return (
     <main className="flex-1 px-5 py-6">
       <h1 className="mb-1 text-2xl font-bold">{memberName}님</h1>
-      {targetQuarter && (
-        <p className="mb-6 text-sm text-gray-500">{targetQuarter.name} 분기</p>
+      {targetHalf && (
+        <p className="mb-6 text-sm text-gray-500">{targetHalf.name} 반기</p>
       )}
 
       {/* 본인 프로필 */}
@@ -305,9 +306,9 @@ export default async function MePage({
         </div>
       </section>
 
-      {/* 분기 선택 */}
-      {quarters.length > 0 && targetQuarter && (
-        <QuarterSelector quarters={quarters} currentId={targetQuarter.id} />
+      {/* 반기 선택 */}
+      {halves.length > 0 && targetHalf && (
+        <HalfSelector halves={halves} currentId={targetHalf.id} />
       )}
 
       {/* 보증금 카드 */}

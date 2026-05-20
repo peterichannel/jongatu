@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { ChevronLeft, FileText } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { formatKRW } from '@/lib/utils'
-import type { Member, Quarter } from '@/lib/types'
+import type { Half, Member } from '@/lib/types'
 import { FinanceManager } from './finance-manager'
 
 export const revalidate = 0
@@ -24,7 +24,7 @@ type DepositTransaction = {
 
 type FundTransaction = {
   id: string
-  quarter_id: string
+  half_id: string
   amount: number
   category: 'studyroom' | 'meal' | 'snack' | 'gift' | 'penalty' | 'membership' | 'other'
   description: string | null
@@ -33,7 +33,7 @@ type FundTransaction = {
 
 export default async function FinancePage() {
   let envError: string | null = null
-  let quarter: Quarter | null = null
+  let half: Half | null = null
   let members: Member[] = []
   let deposits: Deposit[] = []
   let depositTransactions: DepositTransaction[] = []
@@ -41,13 +41,13 @@ export default async function FinancePage() {
 
   try {
     const supabase = supabaseAdmin()
-    const { data: q, error: qErr } = await supabase
-      .from('quarters')
+    const { data: h, error: hErr } = await supabase
+      .from('halves')
       .select('*')
       .eq('is_active', true)
       .maybeSingle()
-    if (qErr) throw new Error(qErr.message)
-    quarter = q
+    if (hErr) throw new Error(hErr.message)
+    half = h
 
     const { data: mems } = await supabase
       .from('members')
@@ -56,11 +56,11 @@ export default async function FinancePage() {
       .order('name')
     members = mems ?? []
 
-    if (quarter) {
+    if (half) {
       const { data: deps } = await supabase
         .from('deposits')
         .select('*')
-        .eq('quarter_id', quarter.id)
+        .eq('half_id', half.id)
       deposits = (deps as Deposit[]) ?? []
 
       if (deposits.length > 0) {
@@ -76,7 +76,7 @@ export default async function FinancePage() {
       const { data: ftx } = await supabase
         .from('fund_transactions')
         .select('*')
-        .eq('quarter_id', quarter.id)
+        .eq('half_id', half.id)
         .order('date', { ascending: false })
       fundTransactions = (ftx as FundTransaction[]) ?? []
     }
@@ -99,7 +99,7 @@ export default async function FinancePage() {
       </Link>
       <div className="mb-2 flex items-center justify-between">
         <h1 className="text-2xl font-bold">정산</h1>
-        {quarter && (
+        {half && (
           <Link
             href="/admin/finance/report"
             className="inline-flex items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
@@ -109,19 +109,19 @@ export default async function FinancePage() {
           </Link>
         )}
       </div>
-      {quarter && <p className="mb-6 text-sm text-gray-600">{quarter.name} 분기</p>}
+      {half && <p className="mb-6 text-sm text-gray-600">{half.name} 반기</p>}
 
       {envError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           {envError}
         </div>
-      ) : !quarter ? (
+      ) : !half ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          활성 분기가 없습니다.
+          활성 반기가 없습니다.
         </div>
       ) : (
         <>
-          {/* 분기 요약 */}
+          {/* 반기 요약 */}
           <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard label="총 보증금 잔액" value={totalDeposit} color="text-green-700" />
             <SummaryCard label="운영비 입금" value={fundIncome} color="text-blue-700" />
@@ -130,7 +130,7 @@ export default async function FinancePage() {
           </section>
 
           <FinanceManager
-            quarter={quarter}
+            half={half}
             members={members}
             deposits={deposits}
             depositTransactions={depositTransactions}

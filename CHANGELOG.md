@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-05-20
+
+### 보증금/운영비 주기를 분기에서 반기로 변경
+- 운영진 정책 정정: 보증금·운영비는 반기(2026-H1, 2026-H2) 단위로 관리. 분기는 발표 일정·회차 관리에만 사용.
+- DB: `halves` 테이블 신규. `deposits`, `fund_transactions` 의 `quarter_id` → `half_id` 로 교체하며 Q1·Q2 row 가 같은 멤버에 중복되면 H1 하나로 병합(시작잔액 45,000원 단일 적용, deposit_transactions 재매핑).
+- 페널티 함수 `apply_attendance_penalty`: 회차 날짜로 반기를 찾아 deposits/fund_transactions ensure·insert.
+- UI: `/admin/finance`, `/admin/finance/report`, `/me`(분기 선택 → 반기 선택)이 모두 활성 반기 기준으로 잔액·정산 표시.
+
+### 사전참석 미등록 페널티 자동 차감 비활성화
+- `penalty_rules.no_pre_attendance` 를 `is_active=false` 로 토글 (규칙 row 는 보존, 추후 토글로 재활성 가능).
+- `apply_attendance_penalty` 에서 사전참석 미응답 분기 영구 제거(COALESCE 잔재로 -3,000원이 살아나지 않도록).
+- 운영자 홈 "사전참석 미응답자 재안내" 카드 톤 정정 — 빨간 강조/마감 임박 표현을 호박색 + 인원 파악 부탁 톤으로 교체.
+
 ## 2026-05-09 (밤)
 
 ### 홈/내정보 페이지 역할 분리 (액션 vs 조회)

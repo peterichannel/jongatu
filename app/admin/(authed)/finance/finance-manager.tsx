@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { Member, Quarter } from '@/lib/types'
+import type { Half, Member } from '@/lib/types'
 import { formatKRW } from '@/lib/utils'
 import { seoulDateISO } from '@/lib/seoul-time'
 
@@ -46,7 +46,7 @@ type FundCategory =
 
 type FundTransaction = {
   id: string
-  quarter_id: string
+  half_id: string
   amount: number
   category: FundCategory
   description: string | null
@@ -81,13 +81,13 @@ function formatShort(d: string) {
 }
 
 export function FinanceManager({
-  quarter,
+  half,
   members,
   deposits,
   depositTransactions,
   fundTransactions: initialFundTx
 }: {
-  quarter: Quarter
+  half: Half
   members: Member[]
   deposits: Deposit[]
   depositTransactions: DepositTransaction[]
@@ -110,13 +110,13 @@ export function FinanceManager({
 
       {tab === 'deposits' ? (
         <DepositSection
-          quarter={quarter}
+          half={half}
           members={members}
           deposits={deposits}
           depositTransactions={depositTransactions}
         />
       ) : (
-        <FundSection quarter={quarter} initialFundTx={initialFundTx} />
+        <FundSection half={half} initialFundTx={initialFundTx} />
       )}
     </>
   )
@@ -147,12 +147,12 @@ function TabButton({
 /* ---------------- 보증금 섹션 ---------------- */
 
 function DepositSection({
-  quarter,
+  half,
   members,
   deposits,
   depositTransactions
 }: {
-  quarter: Quarter
+  half: Half
   members: Member[]
   deposits: Deposit[]
   depositTransactions: DepositTransaction[]
@@ -177,8 +177,8 @@ function DepositSection({
     <div className="space-y-2">
       {members.map(member => {
         const deposit = depositByMember.get(member.id)
-        const balance = deposit?.current_balance ?? quarter.default_deposit
-        const initial = deposit?.initial_amount ?? quarter.default_deposit
+        const balance = deposit?.current_balance ?? half.default_deposit
+        const initial = deposit?.initial_amount ?? half.default_deposit
         const diff = balance - initial
         const txs = deposit ? txByDeposit.get(deposit.id) ?? [] : []
         const open = expanded === member.id
@@ -244,10 +244,10 @@ function DepositSection({
 /* ---------------- 운영비 섹션 ---------------- */
 
 function FundSection({
-  quarter,
+  half,
   initialFundTx
 }: {
-  quarter: Quarter
+  half: Half
   initialFundTx: FundTransaction[]
 }) {
   const router = useRouter()
@@ -258,7 +258,7 @@ function FundSection({
     <div className="space-y-3">
       {adding ? (
         <FundForm
-          quarterId={quarter.id}
+          halfId={half.id}
           onCancel={() => setAdding(false)}
           onDone={() => {
             setAdding(false)
@@ -282,7 +282,7 @@ function FundSection({
             editingId === t.id ? (
               <li key={t.id}>
                 <FundForm
-                  quarterId={quarter.id}
+                  halfId={half.id}
                   transaction={t}
                   onCancel={() => setEditingId(null)}
                   onDone={() => {
@@ -368,12 +368,12 @@ function CategoryBadge({ category }: { category: FundCategory }) {
 }
 
 function FundForm({
-  quarterId,
+  halfId,
   transaction,
   onCancel,
   onDone
 }: {
-  quarterId: string
+  halfId: string
   transaction?: FundTransaction
   onCancel: () => void
   onDone: () => void
@@ -402,7 +402,7 @@ function FundForm({
     setPending(true)
     const signedAmount = sign === 'income' ? num : -num
     const body = {
-      quarter_id: quarterId,
+      half_id: halfId,
       amount: signedAmount,
       category,
       description,

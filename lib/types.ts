@@ -20,6 +20,17 @@ export type Quarter = {
   created_at: string
 }
 
+export type Half = {
+  id: string
+  name: string
+  start_date: string
+  end_date: string
+  default_deposit: number
+  default_operating_fee: number
+  is_active: boolean
+  created_at: string
+}
+
 export type PenaltyRule = {
   id: string
   rule_key: string
