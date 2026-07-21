@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
 import { formatKRW } from '@/lib/utils'
-import type { Half } from '@/lib/types'
+import type { Half, Member } from '@/lib/types'
 import { TransactionList } from './transaction-list'
 import { HalfSelector } from './quarter-selector'
 
@@ -66,29 +66,7 @@ export default async function MePage({
 }: {
   searchParams: { half?: string }
 }) {
-  const me = await getAuthedMember()
-
-  if (!me) {
-    return (
-      <main className="flex-1 px-5 py-6">
-        <h1 className="mb-6 text-2xl font-bold">내 정보</h1>
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-            <p className="text-base font-semibold text-amber-900">로그인이 필요합니다</p>
-            <p className="mt-1 text-sm text-amber-800">
-              홈에서 본인 이름 선택 후 PIN을 입력해주세요.
-            </p>
-          </div>
-          <Link href="/">
-            <Button className="w-full">홈으로</Button>
-          </Link>
-        </div>
-      </main>
-    )
-  }
-
-  const memberId = me.id
-  const memberName = me.name
+  let me: Member | null = null
   let envError: string | null = null
   let halves: Half[] = []
   let targetHalf: Half | null = null
@@ -103,57 +81,152 @@ export default async function MePage({
 
   try {
     const supabase = supabaseAdmin()
+    const NONE = Promise.resolve({ data: null })
 
-    const { data: hs, error: hErr } = await supabase
-      .from('halves')
-      .select('*')
-      .order('start_date', { ascending: false })
-    if (hErr) throw new Error(hErr.message)
-    halves = (hs ?? []) as Half[]
+    // ── 1파: 인증 + 반기 목록 (서로 독립)
+    const [meRes, halvesRes] = await Promise.all([
+      getAuthedMember(),
+      supabase.from('halves').select('*').order('start_date', { ascending: false })
+    ])
+    if (halvesRes.error) throw new Error(halvesRes.error.message)
+    me = meRes
+    halves = (halvesRes.data ?? []) as Half[]
 
-    // 발표 이력 — 본인이 발표자였던 모든 회차 (분기 무관)
-    const { data: pres } = await supabase
-      .from('presentations')
-      .select(
-        'id, company_name, special_label, session:sessions(id, date, session_number, quarter:quarters(name))'
-      )
-      .eq('presenter_id', memberId)
-    for (const row of pres ?? []) {
-      const sRaw = (row as { session: unknown }).session
-      const s = (Array.isArray(sRaw) ? sRaw[0] : sRaw) as
-        | {
-            id: string
-            date: string
-            session_number: number
-            quarter: { name: string } | { name: string }[] | null
-          }
-        | null
-      if (!s) continue
-      const qRaw = s.quarter
-      const qName = (Array.isArray(qRaw) ? qRaw[0]?.name : qRaw?.name) ?? ''
-      const company = (row as { company_name: string | null }).company_name
-      const special = (row as { special_label: string | null }).special_label
-      presentationHistory.push({
-        presentationId: row.id as string,
-        date: s.date,
-        sessionNumber: s.session_number,
-        quarterName: qName,
-        label: company ?? special ?? '(기업 미입력)'
-      })
-    }
-    presentationHistory.sort((a, b) => b.date.localeCompare(a.date))
+    const requested = searchParams.half
+    targetHalf =
+      (requested && halves.find(h => h.id === requested)) ||
+      halves.find(h => h.is_active) ||
+      halves[0] ||
+      null
 
-    // 받은 평가: 본인 발표 슬롯의 evaluations 그룹핑
-    if (presentationHistory.length > 0) {
-      const ids = presentationHistory.map(p => p.presentationId)
-      const { data: evals } = await supabase
-        .from('evaluations')
-        .select(
-          'presentation_id, preparation, delivery, qna, time_management, attractiveness, feedback'
-        )
-        .in('presentation_id', ids)
+    if (me) {
+      const memberId = me.id
 
-      const groupMap = new Map<string, typeof evals>()
+      // ── 2파: 발표 이력 + 대상 반기 보증금 + 대상 반기 회차
+      const [presRes, depositRes, halfSessionsRes] = await Promise.all([
+        // 발표 이력 — 본인이 발표자였던 모든 회차 (분기 무관)
+        supabase
+          .from('presentations')
+          .select(
+            'id, company_name, special_label, session:sessions(id, date, session_number, quarter:quarters(name))'
+          )
+          .eq('presenter_id', memberId),
+        targetHalf
+          ? supabase
+              .from('deposits')
+              .select('*')
+              .eq('member_id', memberId)
+              .eq('half_id', targetHalf.id)
+              .maybeSingle()
+          : NONE,
+        targetHalf
+          ? supabase
+              .from('sessions')
+              .select('id, type, is_test')
+              .gte('date', targetHalf.start_date)
+              .lte('date', targetHalf.end_date)
+          : NONE
+      ])
+
+      const presRows = (presRes.data ?? []) as {
+        id: string
+        company_name: string | null
+        special_label: string | null
+        session: unknown
+      }[]
+      for (const row of presRows) {
+        const sRaw = row.session
+        const s = (Array.isArray(sRaw) ? sRaw[0] : sRaw) as
+          | {
+              id: string
+              date: string
+              session_number: number
+              quarter: { name: string } | { name: string }[] | null
+            }
+          | null
+        if (!s) continue
+        const qRaw = s.quarter
+        const qName = (Array.isArray(qRaw) ? qRaw[0]?.name : qRaw?.name) ?? ''
+        presentationHistory.push({
+          presentationId: row.id,
+          date: s.date,
+          sessionNumber: s.session_number,
+          quarterName: qName,
+          label: row.company_name ?? row.special_label ?? '(기업 미입력)'
+        })
+      }
+      presentationHistory.sort((a, b) => b.date.localeCompare(a.date))
+
+      const deposit = depositRes.data as {
+        id: string
+        initial_amount: number
+        current_balance: number
+      } | null
+      if (deposit) {
+        initialAmount = deposit.initial_amount
+        currentBalance = deposit.current_balance
+      } else if (targetHalf) {
+        initialAmount = targetHalf.default_deposit
+        currentBalance = targetHalf.default_deposit
+      }
+
+      const normalSessionIds = ((halfSessionsRes.data ?? []) as {
+        id: string
+        type: string
+        is_test: boolean
+      }[])
+        .filter(s => s.type === 'normal' && !s.is_test)
+        .map(s => s.id)
+      normalSessionCount = normalSessionIds.length
+
+      // ── 3파: 받은 평가 + 보증금 내역 + 출석 기록
+      const [evalsRes, txRes, attsRes] = await Promise.all([
+        presentationHistory.length > 0
+          ? supabase
+              .from('evaluations')
+              .select(
+                'presentation_id, preparation, delivery, qna, time_management, attractiveness, feedback'
+              )
+              .in(
+                'presentation_id',
+                presentationHistory.map(p => p.presentationId)
+              )
+          : NONE,
+        deposit
+          ? supabase
+              .from('deposit_transactions')
+              .select('id, amount, reason, created_at')
+              .eq('deposit_id', deposit.id)
+              .order('created_at', { ascending: false })
+          : NONE,
+        normalSessionIds.length > 0
+          ? supabase
+              .from('attendances')
+              .select('status')
+              .eq('member_id', memberId)
+              .in('session_id', normalSessionIds)
+          : NONE
+      ])
+
+      transactions = (txRes.data ?? []) as typeof transactions
+
+      for (const a of (attsRes.data ?? []) as { status: string }[]) {
+        const k = a.status as keyof typeof attendanceCounts
+        if (k in attendanceCounts) attendanceCounts[k] += 1
+      }
+
+      // 받은 평가: 본인 발표 슬롯의 evaluations 그룹핑
+      type EvalRow = {
+        presentation_id: string
+        preparation: number
+        delivery: number
+        qna: number
+        time_management: number
+        attractiveness: number
+        feedback: string | null
+      }
+      const evals = (evalsRes.data ?? []) as EvalRow[]
+      const groupMap = new Map<string, EvalRow[]>()
       for (const e of evals ?? []) {
         const arr = groupMap.get(e.presentation_id as string) ?? []
         arr.push(e)
@@ -194,57 +267,6 @@ export default async function MePage({
       }
       if (totalSlots > 0) overallEvalAvg = Math.round((totalSum / totalSlots) * 10) / 10
     }
-
-    const requested = searchParams.half
-    targetHalf =
-      (requested && halves.find(h => h.id === requested)) ||
-      halves.find(h => h.is_active) ||
-      halves[0] ||
-      null
-
-    if (targetHalf) {
-      const { data: deposit } = await supabase
-        .from('deposits')
-        .select('*')
-        .eq('member_id', memberId)
-        .eq('half_id', targetHalf.id)
-        .maybeSingle()
-      if (deposit) {
-        initialAmount = deposit.initial_amount
-        currentBalance = deposit.current_balance
-        const { data: tx } = await supabase
-          .from('deposit_transactions')
-          .select('id, amount, reason, created_at')
-          .eq('deposit_id', deposit.id)
-          .order('created_at', { ascending: false })
-        transactions = tx ?? []
-      } else {
-        initialAmount = targetHalf.default_deposit
-        currentBalance = targetHalf.default_deposit
-      }
-
-      const { data: halfSessions } = await supabase
-        .from('sessions')
-        .select('id, type, is_test')
-        .gte('date', targetHalf.start_date)
-        .lte('date', targetHalf.end_date)
-      const normalSessionIds = (halfSessions ?? [])
-        .filter(s => s.type === 'normal' && !s.is_test)
-        .map(s => s.id)
-      normalSessionCount = normalSessionIds.length
-
-      if (normalSessionIds.length > 0) {
-        const { data: atts } = await supabase
-          .from('attendances')
-          .select('status')
-          .eq('member_id', memberId)
-          .in('session_id', normalSessionIds)
-        for (const a of atts ?? []) {
-          const k = a.status as keyof typeof attendanceCounts
-          if (k in attendanceCounts) attendanceCounts[k] += 1
-        }
-      }
-    }
   } catch (e) {
     envError = e instanceof Error ? e.message : '데이터 로드 실패'
   }
@@ -260,6 +282,26 @@ export default async function MePage({
     )
   }
 
+  if (!me) {
+    return (
+      <main className="flex-1 px-5 py-6">
+        <h1 className="mb-6 text-2xl font-bold">내 정보</h1>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-base font-semibold text-amber-900">로그인이 필요합니다</p>
+            <p className="mt-1 text-sm text-amber-800">
+              홈에서 본인 이름 선택 후 PIN을 입력해주세요.
+            </p>
+          </div>
+          <Link href="/">
+            <Button className="w-full">홈으로</Button>
+          </Link>
+        </div>
+      </main>
+    )
+  }
+
+  const memberName = me.name
   const totalAttendance =
     attendanceCounts.present +
     attendanceCounts.late +
