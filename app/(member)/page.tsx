@@ -48,165 +48,160 @@ export default async function HomePage() {
   let unresponded: { id: string; name: string }[] = []
   let myBalance: number | null = null
   let myAttendanceRate: number | null = null
-
-  // 가드 분기 위해 me 를 먼저 조회 (비운영진은 is_test 회차 숨김)
-  const me = await getAuthedMember()
+  let me: Member | null = null
 
   try {
     const supabase = supabaseAdmin()
-    const { data: ms, error } = await supabase
-      .from('members')
-      .select('id, name, joined_at, is_active, is_admin, created_at, pin_hash')
-      .eq('is_active', true)
-      .order('name')
-    if (error) throw new Error(error.message)
-    members = (ms ?? []) as Member[]
+    const today = seoulDateISO()
+    const NONE = Promise.resolve({ data: null })
 
-    const { data: q } = await supabase
-      .from('quarters')
-      .select('id')
-      .eq('is_active', true)
-      .maybeSingle()
+    // ── 1파: 서로 독립인 조회 4건 (인증 / 명단 / 활성 분기 / 활성 반기)
+    const [meRes, membersRes, quarterRes, halfRes] = await Promise.all([
+      getAuthedMember(),
+      supabase
+        .from('members')
+        .select('id, name, joined_at, is_active, is_admin, created_at, pin_hash')
+        .eq('is_active', true)
+        .order('name'),
+      supabase.from('quarters').select('id').eq('is_active', true).maybeSingle(),
+      supabase.from('halves').select('id').eq('is_active', true).maybeSingle()
+    ])
+    if (membersRes.error) throw new Error(membersRes.error.message)
+    me = meRes
+    members = (membersRes.data ?? []) as Member[]
+    const q = quarterRes.data
+    const activeHalf = halfRes.data
 
     if (q) {
-      const today = seoulDateISO()
-
-      // 다음 회차 (오늘 포함 이후)
-      let nextQuery = supabase
-        .from('sessions')
-        .select('*')
-        .eq('quarter_id', q.id)
-        .eq('type', 'normal')
-        .gte('date', today)
-      if (!me?.is_admin) nextQuery = nextQuery.eq('is_test', false)
-      const { data: ns } = await nextQuery
-        .order('date', { ascending: true })
-        .limit(1)
-        .maybeSingle()
-      nextSession = ns ?? null
-
-      if (nextSession) {
-        const { data: pres } = await supabase
-          .from('presentations')
-          .select('*')
-          .eq('session_id', nextSession.id)
-          .order('slot')
-        nextPresentations = (pres ?? []) as Presentation[]
-      }
-
-      // 오늘 회차 (출석 체크 카드용)
-      let todayQuery = supabase
-        .from('sessions')
-        .select('*')
-        .eq('quarter_id', q.id)
-        .eq('type', 'normal')
-        .eq('date', today)
-      if (!me?.is_admin) todayQuery = todayQuery.eq('is_test', false)
-      const { data: ts } = await todayQuery.maybeSingle()
-      todaySession = ts ?? null
-
-      // 평가 대상 회차: 어제 이전 normal 중 가장 최근 (지난 회차 평가)
-      if (me) {
-        let evalQuery = supabase
+      // 비운영진은 is_test 회차 숨김
+      const isAdmin = !!me?.is_admin
+      const sessionsOf = () => {
+        const base = supabase
           .from('sessions')
           .select('*')
           .eq('quarter_id', q.id)
           .eq('type', 'normal')
-          .lt('date', today)
-        if (!me.is_admin) evalQuery = evalQuery.eq('is_test', false)
-        const { data: es } = await evalQuery
-          .order('date', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        evalSession = es ?? null
+        return isAdmin ? base : base.eq('is_test', false)
       }
 
-      // 본인 사전참석/출석/평가 진행 상황
-      if (me) {
-        if (nextSession) {
-          const { data: pre } = await supabase
-            .from('pre_attendances')
-            .select('id')
-            .eq('session_id', nextSession.id)
-            .eq('member_id', me.id)
-            .maybeSingle()
-          myPreAttended = !!pre
-        }
-        if (todaySession) {
-          const { data: att } = await supabase
-            .from('attendances')
-            .select('id')
-            .eq('session_id', todaySession.id)
-            .eq('member_id', me.id)
-            .maybeSingle()
-          myAttendanceToday = !!att
-        }
-        if (evalSession) {
-          const { data: targets } = await supabase
-            .from('presentations')
-            .select('presenter_id, special_label')
-            .eq('session_id', evalSession.id)
-          const targetCount = (targets ?? []).filter(
-            p => p.presenter_id && p.presenter_id !== me.id && !p.special_label
-          ).length
+      // ── 2파: 활성 분기/반기에만 의존하는 조회 5건
+      const [nextRes, todayRes, evalRes, qSessionsRes, depositRes] = await Promise.all([
+        // 다음 회차 (오늘 포함 이후)
+        sessionsOf().gte('date', today).order('date', { ascending: true }).limit(1).maybeSingle(),
+        // 오늘 회차 (출석 체크 카드용)
+        sessionsOf().eq('date', today).maybeSingle(),
+        // 평가 대상 회차: 어제 이전 normal 중 가장 최근
+        me
+          ? sessionsOf().lt('date', today).order('date', { ascending: false }).limit(1).maybeSingle()
+          : NONE,
+        // 출석률 계산용 분기 전체 회차
+        me ? supabase.from('sessions').select('id, type, is_test').eq('quarter_id', q.id) : NONE,
+        // 보증금 잔액 (활성 반기 기준)
+        me && activeHalf
+          ? supabase
+              .from('deposits')
+              .select('current_balance')
+              .eq('member_id', me.id)
+              .eq('half_id', activeHalf.id)
+              .maybeSingle()
+          : NONE
+      ])
 
-          const { count: myEvalCount } = await supabase
-            .from('evaluations')
-            .select('*', { count: 'exact', head: true })
-            .eq('session_id', evalSession.id)
-            .eq('evaluator_id', me.id)
+      nextSession = (nextRes.data as Session | null) ?? null
+      todaySession = (todayRes.data as Session | null) ?? null
+      evalSession = (evalRes.data as Session | null) ?? null
+      const deposit = depositRes.data as { current_balance: number } | null
+      if (deposit) myBalance = deposit.current_balance
 
-          evalUnfinishedCount = Math.max(targetCount - (myEvalCount ?? 0), 0)
-        }
+      const normalIds = ((qSessionsRes.data ?? []) as {
+        id: string
+        type: string
+        is_test: boolean
+      }[])
+        .filter(s => s.type === 'normal' && !s.is_test)
+        .map(s => s.id)
 
-        // 운영자: 다음 회차 사전참석 미응답자 명단 (재안내 카드용)
-        if (me.is_admin && nextSession) {
-          const { data: allPre } = await supabase
-            .from('pre_attendances')
-            .select('member_id')
-            .eq('session_id', nextSession.id)
-          const respondedIds = new Set((allPre ?? []).map(p => p.member_id as string))
-          unresponded = members
-            .filter(m => !respondedIds.has(m.id))
-            .map(m => ({ id: m.id, name: m.name }))
-        }
+      // ── 3파: 위에서 찾은 회차들에 의존하는 조회 7건
+      const [presRes, myPreRes, myAttRes, targetsRes, myEvalRes, allPreRes, attsRes] =
+        await Promise.all([
+          nextSession
+            ? supabase
+                .from('presentations')
+                .select('*')
+                .eq('session_id', nextSession.id)
+                .order('slot')
+            : NONE,
+          me && nextSession
+            ? supabase
+                .from('pre_attendances')
+                .select('id')
+                .eq('session_id', nextSession.id)
+                .eq('member_id', me.id)
+                .maybeSingle()
+            : NONE,
+          me && todaySession
+            ? supabase
+                .from('attendances')
+                .select('id')
+                .eq('session_id', todaySession.id)
+                .eq('member_id', me.id)
+                .maybeSingle()
+            : NONE,
+          me && evalSession
+            ? supabase
+                .from('presentations')
+                .select('presenter_id, special_label')
+                .eq('session_id', evalSession.id)
+            : NONE,
+          me && evalSession
+            ? supabase
+                .from('evaluations')
+                .select('*', { count: 'exact', head: true })
+                .eq('session_id', evalSession.id)
+                .eq('evaluator_id', me.id)
+            : Promise.resolve({ count: 0 as number | null }),
+          // 운영자: 다음 회차 사전참석 미응답자 명단 (재안내 카드용)
+          me?.is_admin && nextSession
+            ? supabase
+                .from('pre_attendances')
+                .select('member_id')
+                .eq('session_id', nextSession.id)
+            : NONE,
+          me && normalIds.length > 0
+            ? supabase
+                .from('attendances')
+                .select('status')
+                .eq('member_id', me.id)
+                .in('session_id', normalIds)
+            : NONE
+        ])
 
-        // 본인 미리보기: 보증금 잔액 (활성 반기 기준) + 활성 분기 출석률
-        const { data: activeHalf } = await supabase
-          .from('halves')
-          .select('id')
-          .eq('is_active', true)
-          .maybeSingle()
-        if (activeHalf) {
-          const { data: deposit } = await supabase
-            .from('deposits')
-            .select('current_balance')
-            .eq('member_id', me.id)
-            .eq('half_id', activeHalf.id)
-            .maybeSingle()
-          if (deposit) myBalance = deposit.current_balance
-        }
+      nextPresentations = (presRes.data ?? []) as Presentation[]
+      myPreAttended = !!myPreRes.data
+      myAttendanceToday = !!myAttRes.data
 
-        const { data: qSessions } = await supabase
-          .from('sessions')
-          .select('id, type, is_test')
-          .eq('quarter_id', q.id)
-        const normalIds = (qSessions ?? [])
-          .filter(s => s.type === 'normal' && !s.is_test)
-          .map(s => s.id)
-        if (normalIds.length > 0) {
-          const { data: atts } = await supabase
-            .from('attendances')
-            .select('status')
-            .eq('member_id', me.id)
-            .in('session_id', normalIds)
-          const total = (atts ?? []).length
-          const attended = (atts ?? []).filter(
-            a => a.status === 'present' || a.status === 'late'
-          ).length
-          myAttendanceRate =
-            total > 0 ? Math.round((attended / total) * 1000) / 10 : null
-        }
+      if (me && evalSession) {
+        const targetCount = ((targetsRes.data ?? []) as {
+          presenter_id: string | null
+          special_label: string | null
+        }[]).filter(p => p.presenter_id && p.presenter_id !== me!.id && !p.special_label).length
+        evalUnfinishedCount = Math.max(targetCount - (myEvalRes.count ?? 0), 0)
+      }
+
+      if (me?.is_admin && nextSession) {
+        const respondedIds = new Set(
+          ((allPreRes.data ?? []) as { member_id: string }[]).map(p => p.member_id)
+        )
+        unresponded = members
+          .filter(m => !respondedIds.has(m.id))
+          .map(m => ({ id: m.id, name: m.name }))
+      }
+
+      if (me && normalIds.length > 0) {
+        const atts = (attsRes.data ?? []) as { status: string }[]
+        const total = atts.length
+        const attended = atts.filter(a => a.status === 'present' || a.status === 'late').length
+        myAttendanceRate = total > 0 ? Math.round((attended / total) * 1000) / 10 : null
       }
     }
   } catch (e) {
