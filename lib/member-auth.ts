@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { MEMBER_AUTH_COOKIE, MEMBER_COOKIE } from './constants'
 import { supabaseAdmin } from './supabase/server'
@@ -50,7 +51,8 @@ export function clearMemberCookies() {
   store.delete(MEMBER_AUTH_COOKIE)
 }
 
-export async function getAuthedMember(): Promise<Member | null> {
+// cache(): 같은 요청 안에서 layout/page 등이 여러 번 불러도 members 조회는 1회만 수행
+export const getAuthedMember = cache(async (): Promise<Member | null> => {
   const store = cookies()
   const memberId = store.get(MEMBER_COOKIE)?.value
   const auth = store.get(MEMBER_AUTH_COOKIE)?.value
@@ -66,10 +68,10 @@ export async function getAuthedMember(): Promise<Member | null> {
   if (!data || !data.pin_hash) return null
   if (data.pin_hash !== auth) return null
   return data as Member
-}
+})
 
-export async function getAuthedAdmin(): Promise<Member | null> {
+export const getAuthedAdmin = cache(async (): Promise<Member | null> => {
   const me = await getAuthedMember()
   if (!me || !me.is_admin) return null
   return me
-}
+})
