@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 로컬 실행 완료된 SQL 파일 (Supabase Studio에서 수동 실행)
+/supabase/seed.sql
+/supabase/_seoul_schema.sql
+
+# 임시 프리뷰 HTML
+/p_*.html
