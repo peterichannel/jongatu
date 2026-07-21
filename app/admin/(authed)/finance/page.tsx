@@ -41,44 +41,41 @@ export default async function FinancePage() {
 
   try {
     const supabase = supabaseAdmin()
-    const { data: h, error: hErr } = await supabase
-      .from('halves')
-      .select('*')
-      .eq('is_active', true)
-      .maybeSingle()
-    if (hErr) throw new Error(hErr.message)
-    half = h
 
-    const { data: mems } = await supabase
-      .from('members')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
-    members = mems ?? []
+    // ── 1파: 활성 반기 + 명단 (서로 독립)
+    const [halfRes, membersRes] = await Promise.all([
+      supabase.from('halves').select('*').eq('is_active', true).maybeSingle(),
+      supabase.from('members').select('*').eq('is_active', true).order('name')
+    ])
+    if (halfRes.error) throw new Error(halfRes.error.message)
+    half = halfRes.data
+    members = membersRes.data ?? []
 
     if (half) {
-      const { data: deps } = await supabase
-        .from('deposits')
-        .select('*')
-        .eq('half_id', half.id)
-      deposits = (deps as Deposit[]) ?? []
+      // ── 2파: 반기 보증금 + 운영비 내역
+      const [depositsRes, fundRes] = await Promise.all([
+        supabase.from('deposits').select('*').eq('half_id', half.id),
+        supabase
+          .from('fund_transactions')
+          .select('*')
+          .eq('half_id', half.id)
+          .order('date', { ascending: false })
+      ])
+      deposits = (depositsRes.data as Deposit[]) ?? []
+      fundTransactions = (fundRes.data as FundTransaction[]) ?? []
 
+      // ── 3파: 보증금 거래 내역 (deposits 에 의존)
       if (deposits.length > 0) {
-        const depIds = deposits.map(d => d.id)
         const { data: dtx } = await supabase
           .from('deposit_transactions')
           .select('*')
-          .in('deposit_id', depIds)
+          .in(
+            'deposit_id',
+            deposits.map(d => d.id)
+          )
           .order('created_at', { ascending: false })
         depositTransactions = (dtx as DepositTransaction[]) ?? []
       }
-
-      const { data: ftx } = await supabase
-        .from('fund_transactions')
-        .select('*')
-        .eq('half_id', half.id)
-        .order('date', { ascending: false })
-      fundTransactions = (ftx as FundTransaction[]) ?? []
     }
   } catch (e) {
     envError = e instanceof Error ? e.message : '데이터 로드 실패'

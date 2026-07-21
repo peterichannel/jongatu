@@ -35,49 +35,55 @@ export default async function AdminHome() {
 
   try {
     const supabase = supabaseAdmin()
-    const { count } = await supabase
-      .from('members')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', true)
-    activeMemberCount = count ?? 0
+    const NONE = Promise.resolve({ data: null })
 
-    const { data: q } = await supabase
-      .from('quarters')
-      .select('id')
-      .eq('is_active', true)
-      .maybeSingle()
+    // ── 1파: 활성 멤버 수 + 활성 분기 (서로 독립)
+    const [countRes, quarterRes] = await Promise.all([
+      supabase.from('members').select('*', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('quarters').select('id').eq('is_active', true).maybeSingle()
+    ])
+    activeMemberCount = countRes.count ?? 0
+    const q = quarterRes.data
+
     if (q) {
       const today = seoulDateISO()
-      const { data: ts } = await supabase
-        .from('sessions')
-        .select('id, date, session_number')
-        .eq('quarter_id', q.id)
-        .eq('type', 'normal')
-        .eq('date', today)
-        .maybeSingle()
-      todaySession = ts ?? null
+      const sessionsOf = () =>
+        supabase
+          .from('sessions')
+          .select('id, date, session_number')
+          .eq('quarter_id', q.id)
+          .eq('type', 'normal')
 
-      const { data: ns } = await supabase
-        .from('sessions')
-        .select('id, date, session_number')
-        .eq('quarter_id', q.id)
-        .eq('type', 'normal')
-        .gte('date', today)
-        .order('date', { ascending: true })
-        .limit(1)
-        .maybeSingle()
-      nextSession = ns ?? null
+      // ── 2파: 오늘 회차 + 다음 회차
+      const [todayRes, nextRes] = await Promise.all([
+        sessionsOf().eq('date', today).maybeSingle(),
+        sessionsOf().gte('date', today).order('date', { ascending: true }).limit(1).maybeSingle()
+      ])
+      todaySession = todayRes.data ?? null
+      nextSession = nextRes.data ?? null
+
+      // ── 3파: 사전참석 집계 + 오늘 출석 집계
+      const [preRes, attRes] = await Promise.all([
+        nextSession
+          ? supabase
+              .from('pre_attendances')
+              .select('member_id, status')
+              .eq('session_id', nextSession.id)
+          : NONE,
+        todaySession
+          ? supabase
+              .from('attendances')
+              .select('member_id, status')
+              .eq('session_id', todaySession.id)
+          : NONE
+      ])
 
       if (nextSession) {
-        const { data: pre } = await supabase
-          .from('pre_attendances')
-          .select('member_id, status')
-          .eq('session_id', nextSession.id)
         const respondedIds = new Set<string>()
         let attending = 0
         let absent = 0
-        for (const p of pre ?? []) {
-          respondedIds.add(p.member_id as string)
+        for (const p of (preRes.data ?? []) as { member_id: string; status: string }[]) {
+          respondedIds.add(p.member_id)
           if (p.status === 'attending') attending += 1
           else absent += 1
         }
@@ -89,16 +95,12 @@ export default async function AdminHome() {
       }
 
       if (todaySession) {
-        const { data: att } = await supabase
-          .from('attendances')
-          .select('member_id, status')
-          .eq('session_id', todaySession.id)
         const counts = { present: 0, late: 0, absent: 0, excused: 0 }
         const checkedIds = new Set<string>()
-        for (const a of att ?? []) {
+        for (const a of (attRes.data ?? []) as { member_id: string; status: string }[]) {
           const k = a.status as keyof typeof counts
           if (k in counts) counts[k] += 1
-          checkedIds.add(a.member_id as string)
+          checkedIds.add(a.member_id)
         }
         attCounts = {
           ...counts,

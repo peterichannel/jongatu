@@ -45,12 +45,15 @@ export default async function AdminEvaluationsPage() {
 
   try {
     const supabase = supabaseAdmin()
-    const { data: q, error: qErr } = await supabase
-      .from('quarters')
-      .select('*')
-      .eq('is_active', true)
-      .maybeSingle()
-    if (qErr) throw new Error(qErr.message)
+
+    // ── 1파: 활성 분기 + 명단 (서로 독립)
+    const [quarterRes, membersRes] = await Promise.all([
+      supabase.from('quarters').select('*').eq('is_active', true).maybeSingle(),
+      supabase.from('members').select('*').order('name')
+    ])
+    if (quarterRes.error) throw new Error(quarterRes.error.message)
+    members = membersRes.data ?? []
+    const q = quarterRes.data
 
     if (q) {
       quarterName = q.name
@@ -84,9 +87,6 @@ export default async function AdminEvaluationsPage() {
         attendances = (aRes.data as AttendanceRow[]) ?? []
       }
     }
-
-    const { data: mems } = await supabase.from('members').select('*').order('name')
-    members = mems ?? []
   } catch (e) {
     envError = e instanceof Error ? e.message : '데이터 로드 실패'
   }
