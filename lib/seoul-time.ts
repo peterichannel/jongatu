@@ -53,6 +53,12 @@ export function formatMinutesKR(minutes: number): string {
   return m === 0 ? `${ampm} ${h12}시` : `${ampm} ${h12}시 ${m}분`
 }
 
+// 스터디 시작(19:00 KST) 이전인지 — 출석 체크 취소 가능 여부 판정에 사용.
+// 19:00 이후 취소는 곧 자기 결석 처리라 허용하지 않는다.
+export function isBeforeStudyStart(now: Date = new Date()): boolean {
+  return seoulMinutesOfDay(now) < STUDY_START_MINUTES
+}
+
 // 해당 회차의 사전참석 답변이 아직 가능한지 (회차 당일 18:50 KST 마감)
 export function isPreAttendanceOpen(sessionDate: string, now: Date = new Date()): boolean {
   const today = seoulDateISO(now)

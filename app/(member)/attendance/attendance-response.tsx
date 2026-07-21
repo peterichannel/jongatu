@@ -1,16 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CalendarCheck, CheckCircle2, Clock, Pencil, XCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { CalendarCheck, CheckCircle2, Clock, Pencil, X, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { Member, Presentation, Session } from '@/lib/types'
 import {
   PRE_ATTENDANCE_CUTOFF_MINUTES,
   formatMinutesKR,
+  isBeforeStudyStart,
   isPreAttendanceOpen
 } from '@/lib/seoul-time'
 import { CheckInButton } from '../check-in-button'
+
+type ToastState = { kind: 'success' | 'error'; text: string } | null
 
 const REASON_MAX = 100
 // 빠른 선택 사유 — 눌러서 채우고, 그대로 두거나 뒤에 덧붙여 쓸 수 있다.
@@ -71,8 +75,18 @@ export function AttendanceResponse({
   futurePresentations: Presentation[]
   myPreFuture: PreAttendanceRow | null
 }) {
+  // 취소 성공 토스트는 카드가 '미체크' 상태로 재렌더되어도 살아남아야 하므로 최상위에서 관리한다.
+  const [toast, setToast] = useState<ToastState>(null)
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   return (
     <div className="space-y-5">
+      {toast && <Toast kind={toast.kind} text={toast.text} onClose={() => setToast(null)} />}
+
       {/* 오늘 회차: 자가 체크인 + 사전참석 응답 통합 카드 */}
       {todaySession && (
         <SessionPanel
@@ -83,6 +97,7 @@ export function AttendanceResponse({
           me={me}
           myPre={myPreToday}
           myAttendance={myAttendanceToday}
+          onToast={(kind, text) => setToast({ kind, text })}
         />
       )}
 
@@ -96,8 +111,45 @@ export function AttendanceResponse({
           me={me}
           myPre={myPreFuture}
           myAttendance={null}
+          onToast={(kind, text) => setToast({ kind, text })}
         />
       )}
+    </div>
+  )
+}
+
+function Toast({
+  kind,
+  text,
+  onClose
+}: {
+  kind: 'success' | 'error'
+  text: string
+  onClose: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      className={`fixed inset-x-0 top-4 z-50 mx-auto flex max-w-md items-center gap-3 rounded-2xl px-4 py-3 shadow-lg ${
+        kind === 'success'
+          ? 'border border-green-200 bg-green-50 text-green-900'
+          : 'border border-red-200 bg-red-50 text-red-900'
+      }`}
+    >
+      {kind === 'success' ? (
+        <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
+      ) : (
+        <X className="h-5 w-5 shrink-0 text-red-600" />
+      )}
+      <span className="flex-1 text-base font-semibold">{text}</span>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="닫기"
+        className="text-gray-500 hover:text-gray-900"
+      >
+        <X className="h-4 w-4" />
+      </button>
     </div>
   )
 }
@@ -111,7 +163,8 @@ function SessionPanel({
   members,
   me,
   myPre,
-  myAttendance
+  myAttendance,
+  onToast
 }: {
   kind: 'today' | 'future'
   session: Session
@@ -120,6 +173,7 @@ function SessionPanel({
   me: Member
   myPre: PreAttendanceRow | null
   myAttendance: AttendanceRow | null
+  onToast: (kind: 'success' | 'error', text: string) => void
 }) {
   const isPresenter = presentations.some(p => p.presenter_id === me.id)
   const memberName = (id: string) => members.find(m => m.id === id)?.name ?? '(알수없음)'
@@ -160,9 +214,7 @@ function SessionPanel({
             <>
               <CheckedInStatus row={myAttendance} />
               {!myAttendance.is_confirmed && (
-                <div className="mt-2">
-                  <ReCheckIn sessionId={session.id} />
-                </div>
+                <CheckInActions sessionId={session.id} onToast={onToast} />
               )}
             </>
           ) : (
@@ -217,59 +269,136 @@ function SessionPanel({
   )
 }
 
-/* ─────────────── 출석 체크 다시하기 ─────────────── */
+/* ─────────────── 출석 체크 다시하기 / 취소 ─────────────── */
 
-// 잘못 눌렀거나 시각이 틀어졌을 때 다시 체크 — POST 가 기존 행을 갱신하므로 재호출로 충분하다.
-// 체크 자체를 무르는 '취소'는 미체크=결석 이 되어버려 제공하지 않는다(운영자만 정정).
-function ReCheckIn({ sessionId }: { sessionId: string }) {
-  const [open, setOpen] = useState(false)
-  const [pending, setPending] = useState(false)
+// 체크 후 액션.
+//  - [다시 체크]: 잘못 눌렀거나 시각이 틀어졌을 때 지금 시각으로 재판정 (POST 가 기존 행 갱신)
+//  - [취소]: 체크 자체를 무름. 스터디 시작(19:00 KST) 전에만 노출·허용 — 이후 취소는 미체크=결석 이라 금지.
+function CheckInActions({
+  sessionId,
+  onToast
+}: {
+  sessionId: string
+  onToast: (kind: 'success' | 'error', text: string) => void
+}) {
+  const router = useRouter()
+  const [pending, setPending] = useState<'recheck' | 'cancel' | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [error, setError] = useState('')
+
+  // 취소 버튼 노출 판정(19:00 이전)은 마운트 후에만 — SSR 시각과 어긋나 hydration 이 깨지지 않도록.
+  const [canCancel, setCanCancel] = useState(false)
+  useEffect(() => {
+    const tick = () => setCanCancel(isBeforeStudyStart())
+    tick()
+    const timer = setInterval(tick, 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   const recheck = async () => {
     setError('')
-    setPending(true)
+    setPending('recheck')
     const r = await fetch('/api/attendance/check-in', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId })
     })
-    setPending(false)
     if (!r.ok) {
       const j = await r.json().catch(() => ({}))
+      setPending(null)
       setError(j.error || '다시 체크 실패')
       return
     }
-    window.location.reload()
+    setPending(null)
+    router.refresh()
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="text-sm font-semibold text-gray-500 underline hover:text-gray-800"
-      >
-        체크 시각이 잘못됐나요?
-      </button>
-    )
+  const cancel = async () => {
+    setError('')
+    setPending('cancel')
+    const r = await fetch('/api/attendance/check-in', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    })
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      setPending(null)
+      setConfirmOpen(false)
+      // 시각이 마침 19:00 을 넘겨 서버가 거부한 경우 등 — 토스트로 안내
+      onToast('error', j.error || '취소 실패')
+      return
+    }
+    setPending(null)
+    setConfirmOpen(false)
+    onToast('success', '출석 체크가 취소되었습니다')
+    router.refresh()
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-      <p className="text-sm text-gray-700">
-        지금 시각으로 다시 체크합니다. 출석/지각은 현재 시각 기준으로 다시 판정됩니다.
-      </p>
-      {error && <p className="mt-2 text-sm font-semibold text-red-600">{error}</p>}
-      <div className="mt-2 flex gap-2">
-        <Button onClick={recheck} disabled={pending} className="flex-1">
-          {pending ? '처리 중...' : '다시 체크'}
+    <>
+      <div className="mt-3 flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={recheck}
+          disabled={pending !== null}
+          className="flex-1"
+        >
+          {pending === 'recheck' ? '처리 중...' : '다시 체크'}
         </Button>
-        <Button variant="secondary" onClick={() => setOpen(false)} className="flex-1">
-          닫기
-        </Button>
+        {canCancel && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setError('')
+              setConfirmOpen(true)
+            }}
+            disabled={pending !== null}
+            className="flex-1 border-red-300 text-red-700 hover:bg-red-50"
+          >
+            취소
+          </Button>
+        )}
       </div>
-    </div>
+      {error && <p className="mt-2 text-sm font-semibold text-red-600">{error}</p>}
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-5">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <div className="text-lg font-bold text-gray-900">출석 체크 취소</div>
+            <p className="mt-2 text-sm text-gray-600">
+              정말 취소하시겠습니까?
+              <br />
+              다시 체크할 수 있습니다.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmOpen(false)}
+                disabled={pending === 'cancel'}
+                className="flex-1"
+              >
+                아니오
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={cancel}
+                disabled={pending === 'cancel'}
+                className="flex-1"
+              >
+                {pending === 'cancel' ? '취소 중...' : '예, 취소합니다'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

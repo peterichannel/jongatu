@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
+import { seoulDateISO, seoulMinutesOfDay, STUDY_START_MINUTES } from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
@@ -113,4 +113,82 @@ export async function POST(req: Request) {
     checked_in_at: checkedInAt,
     is_late: isLate
   })
+}
+
+// 출석 체크 취소 — 스터디 시작(19:00 KST) 전에만 허용.
+// 시작 후 취소는 곧 자기 결석 처리라 서버에서 거부한다. 클라 UI 숨김만으로는 부족.
+export async function DELETE(req: Request) {
+  const me = await getAuthedMember()
+  if (!me) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+
+  let body: Record<string, unknown> = {}
+  try {
+    body = await req.json()
+  } catch {
+    /* 빈 바디 허용 */
+  }
+
+  const session_id = typeof body.session_id === 'string' ? body.session_id : ''
+  if (!session_id) {
+    return NextResponse.json({ error: 'session_id required' }, { status: 400 })
+  }
+
+  const supabase = supabaseAdmin()
+
+  const { data: session, error: sErr } = await supabase
+    .from('sessions')
+    .select('id, date, type')
+    .eq('id', session_id)
+    .maybeSingle()
+  if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 })
+  if (!session) return NextResponse.json({ error: '회차를 찾을 수 없습니다' }, { status: 404 })
+
+  // 오늘 회차가 아니면 이미 지난 스터디 → 취소 불가
+  const today = seoulDateISO()
+  if (session.date !== today) {
+    return NextResponse.json(
+      { error: '오늘 회차가 아니라 취소할 수 없습니다' },
+      { status: 403 }
+    )
+  }
+
+  // 스터디 시작 후 취소 금지 (미체크 = 결석 이므로)
+  if (seoulMinutesOfDay() >= STUDY_START_MINUTES) {
+    return NextResponse.json(
+      { error: '스터디 시작 후에는 취소할 수 없습니다' },
+      { status: 403 }
+    )
+  }
+
+  // 확정된 출결은 취소 불가 (운영자 정정 영역)
+  const { data: existing } = await supabase
+    .from('attendances')
+    .select('id, is_confirmed')
+    .eq('session_id', session_id)
+    .eq('member_id', me.id)
+    .maybeSingle()
+  if (!existing) {
+    return NextResponse.json({ error: '체크 기록이 없습니다' }, { status: 404 })
+  }
+  if (existing.is_confirmed) {
+    return NextResponse.json(
+      { error: '출결이 확정되어 취소할 수 없습니다' },
+      { status: 403 }
+    )
+  }
+
+  const { error: delErr } = await supabase
+    .from('attendances')
+    .delete()
+    .eq('id', existing.id)
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+
+  // 페널티 동기화 — 행이 사라졌으므로 지각 페널티 reversal + (사전참석 미응답 시) 재적용
+  const { error: penaltyErr } = await supabase.rpc('apply_attendance_penalty', {
+    p_session_id: session_id,
+    p_member_id: me.id
+  })
+  if (penaltyErr) return NextResponse.json({ error: penaltyErr.message }, { status: 500 })
+
+  return NextResponse.json({ ok: true })
 }
