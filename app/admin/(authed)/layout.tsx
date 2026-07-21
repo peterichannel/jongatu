@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Home } from 'lucide-react'
 import { getAuthedAdmin } from '@/lib/member-auth'
+import { BrandHeader } from '@/components/BrandHeader'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await getAuthedAdmin()
@@ -9,6 +10,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <BrandHeader />
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-gray-200 bg-white px-5 print:hidden">
         <div className="flex items-center gap-3">
           <Link

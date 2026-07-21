@@ -4,7 +4,6 @@ import { SkeletonBar, SkeletonCard } from '@/components/Skeleton'
 export default function Loading() {
   return (
     <main className="flex-1 px-5 py-6">
-      <SkeletonBar className="mb-6 h-8 w-56" /> {/* 종로 가치 투자 스터디 */}
       <SkeletonCard className="mb-6 h-40" /> {/* 인사말 + 다음 스터디 */}
       <SkeletonCard className="mb-5 h-16" /> {/* 지금 해야 할 일 */}
       <SkeletonCard className="h-48" /> {/* 내 정보 미리보기 */}

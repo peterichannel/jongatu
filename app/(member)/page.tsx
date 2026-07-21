@@ -210,10 +210,6 @@ export default async function HomePage() {
 
   return (
     <main className="flex-1 px-5 py-6">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">종로 가치 투자 스터디</h1>
-      </header>
-
       {envErrorMessage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
           <p className="text-base font-semibold text-amber-900">설정 필요</p>
