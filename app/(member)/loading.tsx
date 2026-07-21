@@ -1,14 +1,13 @@
+import { SkeletonBar, SkeletonCard } from '@/components/Skeleton'
+
+// 홈(/) 전용 — 하위 라우트는 각자 loading.tsx 를 가진다.
 export default function Loading() {
   return (
     <main className="flex-1 px-5 py-6">
-      {/* 페이지 제목 자리 */}
-      <div className="mb-6 h-7 w-32 animate-pulse rounded-md bg-gray-200" />
-
-      <div className="space-y-4">
-        <div className="h-28 animate-pulse rounded-2xl bg-gray-100" />
-        <div className="h-20 animate-pulse rounded-2xl bg-gray-100" />
-        <div className="h-32 animate-pulse rounded-2xl bg-gray-100" />
-      </div>
+      <SkeletonBar className="mb-6 h-8 w-56" /> {/* 종로 가치 투자 스터디 */}
+      <SkeletonCard className="mb-6 h-40" /> {/* 인사말 + 다음 스터디 */}
+      <SkeletonCard className="mb-5 h-16" /> {/* 지금 해야 할 일 */}
+      <SkeletonCard className="h-48" /> {/* 내 정보 미리보기 */}
     </main>
   )
 }
