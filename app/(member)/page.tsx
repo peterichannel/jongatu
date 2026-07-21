@@ -2,7 +2,12 @@ import Link from 'next/link'
 import { ArrowRight, ChevronRight, ShieldCheck } from 'lucide-react'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { addDaysSeoulISO, seoulDateISO, seoulMinutesOfDay } from '@/lib/seoul-time'
+import {
+  PRE_ATTENDANCE_CUTOFF_MINUTES,
+  formatMinutesKR,
+  seoulDateISO,
+  seoulMinutesOfDay
+} from '@/lib/seoul-time'
 import { formatKRW } from '@/lib/utils'
 import { MemberAuthFlow } from '@/components/MemberAuthFlow'
 import { CopyShareButtons } from '@/components/CopyShareButtons'
@@ -481,8 +486,7 @@ function PreAttendanceNoticeCard({
     )
   const presenterBlock = lines.length > 0 ? lines.join('\n') : '- (발표자 미정)'
 
-  // 마감일 = 회차 전날 (D-1) 자정
-  const deadlineISO = addDaysSeoulISO(session.date, -1)
+  // 마감 = 회차 당일 스터디 시작 10분 전 (18:50 KST)
   const urlLine = APP_URL ? `\n👉 ${APP_URL}/attendance` : ''
 
   const message = [
@@ -493,7 +497,7 @@ function PreAttendanceNoticeCard({
     '📢 발표자',
     presenterBlock,
     '',
-    `답변 마감: ${formatDateKR(deadlineISO)} 자정${urlLine}`
+    `답변 마감: ${formatDateKR(session.date)} ${formatMinutesKR(PRE_ATTENDANCE_CUTOFF_MINUTES)} (스터디 10분 전)${urlLine}`
   ].join('\n')
 
   return (

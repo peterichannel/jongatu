@@ -126,7 +126,15 @@ export default async function AdminHome() {
                   <ClipboardList className="h-4 w-4" />
                   사전참석 — {nextSession.session_number}회차 ({nextSession.date})
                 </div>
-                <span className="text-xs text-gray-500">활성 {activeMemberCount}명</span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-gray-500">활성 {activeMemberCount}명</span>
+                  <Link
+                    href={`/admin/schedule/${nextSession.id}/pre-attendance`}
+                    className="text-xs font-semibold text-blue-700 hover:underline"
+                  >
+                    상세 →
+                  </Link>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <Stat label="참석" value={preCounts.attending} color="text-green-700" />

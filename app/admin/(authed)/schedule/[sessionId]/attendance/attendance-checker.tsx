@@ -3,6 +3,9 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Member, Presentation, Session } from '@/lib/types'
+import { CopyShareButtons } from '@/components/CopyShareButtons'
+
+const APP_URL = process.env.NEXT_PUBLIC_SITE_URL ?? ''
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused'
 
@@ -84,18 +87,34 @@ export function AttendanceChecker({
     return set
   }, [presentations])
 
-  const counts: Record<AttendanceStatus, number> = {
-    present: 0,
-    late: 0,
-    absent: 0,
-    excused: 0
+  // members는 이미 name 정렬(가나다순)이라 분류 순서가 그대로 유지됨
+  const groups: Record<AttendanceStatus | 'unchecked', string[]> = {
+    present: [],
+    late: [],
+    absent: [],
+    excused: [],
+    unchecked: []
   }
-  let unchecked = 0
   for (const m of members) {
     const a = attendances[m.id]
-    if (a) counts[a.status] += 1
-    else unchecked += 1
+    groups[a ? a.status : 'unchecked'].push(m.name)
   }
+  const counts = {
+    present: groups.present.length,
+    late: groups.late.length,
+    absent: groups.absent.length,
+    excused: groups.excused.length
+  }
+  const unchecked = groups.unchecked.length
+
+  const uncheckedMessage = [
+    '종가투 형님들 🙏',
+    '',
+    `${session.session_number}회차 출석체크가 아직 안 된 분들입니다:`,
+    groups.unchecked.join(', '),
+    '',
+    '앱에서 출석체크 한 번만 눌러주세요.' + (APP_URL ? `\n👉 ${APP_URL}` : '')
+  ].join('\n')
 
   const handleClick = async (memberId: string, status: AttendanceStatus) => {
     setError('')
@@ -203,7 +222,50 @@ export function AttendanceChecker({
           )
         })}
       </div>
+
+      {/* 상태별 명단 */}
+      <div className="space-y-3">
+        <NameGroup title="출석" icon="✅" names={groups.present} cls="border-green-200 bg-green-50 text-green-800" />
+        <NameGroup title="지각" icon="🕒" names={groups.late} cls="border-amber-200 bg-amber-50 text-amber-900" />
+        <NameGroup title="결석" icon="❌" names={groups.absent} cls="border-red-200 bg-red-50 text-red-800" />
+        <NameGroup title="공결" icon="📄" names={groups.excused} cls="border-gray-200 bg-gray-50 text-gray-700" />
+        <NameGroup title="미체크" icon="⏳" names={groups.unchecked} cls="border-orange-200 bg-orange-50 text-orange-900" />
+      </div>
+
+      {unchecked > 0 && (
+        <section className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="text-base font-bold text-gray-900">📢 출석체크 안내 메시지</div>
+          <p className="mt-1 text-sm text-gray-600">단톡방에 복사해 보내주세요.</p>
+          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-gray-50 p-3 text-sm leading-relaxed text-gray-800">
+{uncheckedMessage}
+          </pre>
+          <CopyShareButtons message={uncheckedMessage} shareTitle="종가투 출석체크 안내" />
+        </section>
+      )}
     </div>
+  )
+}
+
+function NameGroup({
+  title,
+  icon,
+  names,
+  cls
+}: {
+  title: string
+  icon: string
+  names: string[]
+  cls: string
+}) {
+  return (
+    <section className={`rounded-2xl border p-4 ${cls}`}>
+      <div className="text-base font-bold">
+        {icon} {title} ({names.length}명)
+      </div>
+      <p className="mt-1 text-lg font-semibold leading-relaxed text-gray-900">
+        {names.length > 0 ? names.join(', ') : <span className="text-base font-normal text-gray-500">(없음)</span>}
+      </p>
+    </section>
   )
 }
 

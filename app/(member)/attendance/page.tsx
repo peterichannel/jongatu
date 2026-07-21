@@ -2,11 +2,22 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { seoulDateISO } from '@/lib/seoul-time'
+import { addDaysSeoulISO, seoulDateISO } from '@/lib/seoul-time'
 import type { Member, Presentation, Session } from '@/lib/types'
 import { AttendanceResponse } from './attendance-response'
 
 export const revalidate = 0
+
+// 사전참석 응답 창: 회차 D-3부터 (그 이전엔 인지 부담만 크고 답변 신뢰도가 낮음)
+const PRE_ATTEND_WINDOW_DAYS = 3
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토']
+function formatDateKR(d: string) {
+  const [y, m, day] = d.split('-').map(Number)
+  if (!y) return d
+  const dt = new Date(Date.UTC(y, m - 1, day))
+  return `${m}월 ${day}일 (${WEEKDAY[dt.getUTCDay()]})`
+}
 
 type AttendanceRow = {
   id: string
@@ -31,6 +42,7 @@ export default async function AttendancePage() {
   let envError: string | null = null
   let todaySession: Session | null = null
   let futureSession: Session | null = null
+  let deferredSession: Session | null = null
   let todayPresentations: Presentation[] = []
   let futurePresentations: Presentation[] = []
   let myAttendanceToday: AttendanceRow | null = null
@@ -68,7 +80,18 @@ export default async function AttendancePage() {
         sessionsOf().gt('date', today).order('date', { ascending: true }).limit(1).maybeSingle()
       ])
       todaySession = (todayRes.data as Session | null) ?? null
-      futureSession = (futureRes.data as Session | null) ?? null
+
+      // 사전참석 카드는 한 시점에 최대 하나만 노출한다.
+      // - 오늘 회차가 있으면 → 오늘 것에 집중, 다음 회차는 숨김
+      // - 오늘 회차가 없으면 → 다음 회차가 D-3 이내일 때만 노출
+      const futureRaw = (futureRes.data as Session | null) ?? null
+      const inPreWindow =
+        !!futureRaw &&
+        !todaySession &&
+        futureRaw.date <= addDaysSeoulISO(today, PRE_ATTEND_WINDOW_DAYS)
+      futureSession = inPreWindow ? futureRaw : null
+      // 아직 응답 창이 열리지 않은 회차 (안내 문구용)
+      if (!todaySession && !inPreWindow) deferredSession = futureRaw
 
       const sessionIds: string[] = []
       if (todaySession) sessionIds.push(todaySession.id)
@@ -137,12 +160,33 @@ export default async function AttendancePage() {
           {envError}
         </div>
       ) : !todaySession && !futureSession ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <p className="text-base font-semibold text-amber-900">다가오는 회차가 없습니다</p>
-          <p className="mt-1 text-sm text-amber-800">
-            운영자가 분기 일정을 등록할 때까지 기다려주세요.
-          </p>
-        </div>
+        deferredSession ? (
+          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+            <p className="text-base font-semibold text-gray-900">
+              지금은 응답할 회차가 없습니다
+            </p>
+            <p className="mt-1 text-sm text-gray-600">
+              다음 회차는 {formatDateKR(deferredSession.date)} ·{' '}
+              {deferredSession.session_number}회차입니다. 사전참석 응답은{' '}
+              <b>
+                {formatDateKR(addDaysSeoulISO(deferredSession.date, -PRE_ATTEND_WINDOW_DAYS))}
+              </b>
+              부터 가능합니다.
+            </p>
+            <Link href="/schedule" className="mt-4 block">
+              <Button variant="outline" className="w-full">
+                일정 보기
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-base font-semibold text-amber-900">다가오는 회차가 없습니다</p>
+            <p className="mt-1 text-sm text-amber-800">
+              운영자가 분기 일정을 등록할 때까지 기다려주세요.
+            </p>
+          </div>
+        )
       ) : (
         <AttendanceResponse
           me={me}

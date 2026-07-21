@@ -38,6 +38,29 @@ export function seoulMinutesOfDay(d: Date = new Date()): number {
   return hour * 60 + minute
 }
 
+// ── 스터디 시각 상수 (자정 기준 분 단위, sessions.late_after_minutes 와 같은 컨벤션)
+// 스터디는 매주 수요일 19:00 KST 시작 고정. 회차마다 달라지면 sessions 에 start_time 컬럼을 추가한다.
+export const STUDY_START_MINUTES = 19 * 60 // 19:00
+// 사전참석 답변 마감 = 스터디 시작 10분 전 (운영진 인원 파악 최소 시간)
+export const PRE_ATTENDANCE_CUTOFF_MINUTES = STUDY_START_MINUTES - 10 // 18:50
+
+// 자정 기준 분 → '오후 6시 50분'
+export function formatMinutesKR(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  const ampm = h < 12 ? '오전' : '오후'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return m === 0 ? `${ampm} ${h12}시` : `${ampm} ${h12}시 ${m}분`
+}
+
+// 해당 회차의 사전참석 답변이 아직 가능한지 (회차 당일 18:50 KST 마감)
+export function isPreAttendanceOpen(sessionDate: string, now: Date = new Date()): boolean {
+  const today = seoulDateISO(now)
+  if (sessionDate > today) return true
+  if (sessionDate < today) return false
+  return seoulMinutesOfDay(now) < PRE_ATTENDANCE_CUTOFF_MINUTES
+}
+
 // 'YYYY-MM-DD' 에 days를 더한 KST 날짜 ISO. days 가 음수면 빼는 효과.
 export function addDaysSeoulISO(date: string, days: number): string {
   const t = new Date(`${date}T00:00:00+09:00`).getTime() + days * 24 * 3600_000

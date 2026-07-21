@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
-import { seoulDateISO } from '@/lib/seoul-time'
+import {
+  PRE_ATTENDANCE_CUTOFF_MINUTES,
+  formatMinutesKR,
+  isPreAttendanceOpen
+} from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
@@ -45,6 +49,11 @@ export async function POST(req: Request) {
   if (!session_id || !VALID_STATUS.has(status)) {
     return NextResponse.json({ error: 'invalid input' }, { status: 400 })
   }
+  // 불참은 사유 필수. 참석이면 사유는 무조건 버린다(불참→참석 변경 시 잔재 제거).
+  if (status === 'absent' && !reason) {
+    return NextResponse.json({ error: '불참 시 사유를 입력해주세요' }, { status: 400 })
+  }
+  const finalReason = status === 'absent' ? reason!.slice(0, 100) : null
 
   const supabase = supabaseAdmin()
 
@@ -61,8 +70,14 @@ export async function POST(req: Request) {
   if (session.is_test && !me.is_admin) {
     return NextResponse.json({ error: '테스트 회차는 운영진만 응답 가능합니다' }, { status: 403 })
   }
-  if (session.date < seoulDateISO()) {
-    return NextResponse.json({ error: '이미 지난 회차입니다' }, { status: 400 })
+  // 마감 = 회차 당일 스터디 시작 10분 전 (18:50 KST)
+  if (!isPreAttendanceOpen(session.date)) {
+    return NextResponse.json(
+      {
+        error: `사전참석 답변이 마감되었습니다 (마감: ${formatMinutesKR(PRE_ATTENDANCE_CUTOFF_MINUTES)})`
+      },
+      { status: 400 }
+    )
   }
 
   const { error: upErr } = await supabase
@@ -72,7 +87,7 @@ export async function POST(req: Request) {
         session_id,
         member_id: me.id,
         status,
-        reason,
+        reason: finalReason,
         responded_at: new Date().toISOString()
       },
       { onConflict: 'session_id,member_id' }

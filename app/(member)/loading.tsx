@@ -1,4 +1,4 @@
-import { SkeletonBar, SkeletonCard } from '@/components/Skeleton'
+import { SkeletonCard } from '@/components/Skeleton'
 
 // 홈(/) 전용 — 하위 라우트는 각자 loading.tsx 를 가진다.
 export default function Loading() {

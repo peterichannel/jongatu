@@ -5,7 +5,16 @@ import { CalendarCheck, CheckCircle2, Clock, Pencil, XCircle } from 'lucide-reac
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import type { Member, Presentation, Session } from '@/lib/types'
+import {
+  PRE_ATTENDANCE_CUTOFF_MINUTES,
+  formatMinutesKR,
+  isPreAttendanceOpen
+} from '@/lib/seoul-time'
 import { CheckInButton } from '../check-in-button'
+
+const REASON_MAX = 100
+// 빠른 선택 사유 — 눌러서 채우고, 그대로 두거나 뒤에 덧붙여 쓸 수 있다.
+const QUICK_REASONS = ['회사 일정', '가족 일정', '몸이 안 좋음', '출장/여행'] as const
 
 const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -148,7 +157,14 @@ function SessionPanel({
         <div className="mt-4 rounded-xl bg-white p-4">
           <div className="text-xs font-bold text-gray-700">출석 체크</div>
           {myAttendance ? (
-            <CheckedInStatus row={myAttendance} />
+            <>
+              <CheckedInStatus row={myAttendance} />
+              {!myAttendance.is_confirmed && (
+                <div className="mt-2">
+                  <ReCheckIn sessionId={session.id} />
+                </div>
+              )}
+            </>
           ) : (
             <div className="mt-2">
               <CheckInButton sessionId={session.id} />
@@ -198,6 +214,62 @@ function SessionPanel({
         </div>
       )}
     </section>
+  )
+}
+
+/* ─────────────── 출석 체크 다시하기 ─────────────── */
+
+// 잘못 눌렀거나 시각이 틀어졌을 때 다시 체크 — POST 가 기존 행을 갱신하므로 재호출로 충분하다.
+// 체크 자체를 무르는 '취소'는 미체크=결석 이 되어버려 제공하지 않는다(운영자만 정정).
+function ReCheckIn({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  const recheck = async () => {
+    setError('')
+    setPending(true)
+    const r = await fetch('/api/attendance/check-in', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId })
+    })
+    setPending(false)
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      setError(j.error || '다시 체크 실패')
+      return
+    }
+    window.location.reload()
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-sm font-semibold text-gray-500 underline hover:text-gray-800"
+      >
+        체크 시각이 잘못됐나요?
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+      <p className="text-sm text-gray-700">
+        지금 시각으로 다시 체크합니다. 출석/지각은 현재 시각 기준으로 다시 판정됩니다.
+      </p>
+      {error && <p className="mt-2 text-sm font-semibold text-red-600">{error}</p>}
+      <div className="mt-2 flex gap-2">
+        <Button onClick={recheck} disabled={pending} className="flex-1">
+          {pending ? '처리 중...' : '다시 체크'}
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen(false)} className="flex-1">
+          닫기
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -258,6 +330,17 @@ function PreAttendanceArea({
   const [reason, setReason] = useState(myPre?.reason ?? '')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  // 마감(회차 당일 18:50 KST) 판정은 마운트 후에만 — SSR 시각과 어긋나 hydration 이 깨지지 않도록
+  // 초기값을 열림으로 두고, 마운트 직후·30초마다 다시 계산한다.
+  const [open, setOpen] = useState(true)
+  useEffect(() => {
+    const tick = () => setOpen(isPreAttendanceOpen(session.date))
+    tick()
+    const timer = setInterval(tick, 30_000)
+    return () => clearInterval(timer)
+  }, [session.date])
 
   useEffect(() => {
     setPre(myPre)
@@ -297,33 +380,49 @@ function PreAttendanceArea({
       responded_at: new Date().toISOString()
     })
     setEditing(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 5000)
   }
+
+  const deadlineText = `${formatMinutesKR(PRE_ATTENDANCE_CUTOFF_MINUTES)} (스터디 10분 전)`
+  const savedBanner = saved ? (
+    <div className="mt-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm font-semibold text-green-900">
+      ✓ 사전참석 답변 저장되었습니다
+    </div>
+  ) : null
 
   // 응답 완료 + compact: 한 줄 요약
   if (pre && !editing && compact) {
     return (
-      <div className="mt-3 flex items-center justify-between rounded-xl bg-white px-3 py-2">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-xs text-gray-500">사전참석</span>
-          {pre.status === 'attending' ? (
-            <span className="font-semibold text-green-800">✓ 참석</span>
+      <>
+        <div className="mt-3 flex items-center justify-between rounded-xl bg-white px-3 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-xs text-gray-500">사전참석</span>
+            {pre.status === 'attending' ? (
+              <span className="font-semibold text-green-800">✓ 참석</span>
+            ) : (
+              <span className="font-semibold text-red-800">
+                ✗ 불참 {pre.reason ? `(${pre.reason})` : ''}
+              </span>
+            )}
+          </div>
+          {open ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(true)
+                setError('')
+              }}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+            >
+              <Pencil className="h-3 w-3" /> 변경
+            </button>
           ) : (
-            <span className="font-semibold text-red-800">
-              ✗ 불참 {pre.reason ? `(${pre.reason})` : ''}
-            </span>
+            <span className="text-xs text-gray-400">답변 마감</span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(true)
-            setError('')
-          }}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
-        >
-          <Pencil className="h-3 w-3" /> 변경
-        </button>
-      </div>
+        {savedBanner}
+      </>
     )
   }
 
@@ -351,18 +450,35 @@ function PreAttendanceArea({
               <div className="mt-1 text-sm text-gray-700">사유: {pre.reason}</div>
             )}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setEditing(true)
-              setError('')
-            }}
-          >
-            <Pencil className="h-4 w-4" />
-            변경
-          </Button>
+          {open ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditing(true)
+                setError('')
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              변경
+            </Button>
+          ) : (
+            <span className="text-sm text-gray-400">답변 마감</span>
+          )}
         </div>
+        {savedBanner}
+      </div>
+    )
+  }
+
+  // 마감 후 + 미응답: 폼 대신 안내
+  if (!open) {
+    return (
+      <div className="mt-4 rounded-xl bg-white p-4">
+        <div className="text-sm font-bold text-gray-900">사전참석</div>
+        <p className="mt-1 text-base text-gray-600">
+          답변이 마감되었습니다 (마감: {deadlineText}).
+        </p>
       </div>
     )
   }
@@ -400,19 +516,51 @@ function PreAttendanceArea({
 
       {status === 'absent' && (
         <div>
-          <Label htmlFor={`reason-${session.id}`}>불참 사유</Label>
+          <Label htmlFor={`reason-${session.id}`}>불참 사유 (필수)</Label>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {QUICK_REASONS.map(q => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => {
+                  setReason(q)
+                  setError('')
+                }}
+                className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                  reason === q
+                    ? 'border-red-500 bg-red-50 text-red-800'
+                    : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
           <textarea
             id={`reason-${session.id}`}
             value={reason}
-            onChange={e => setReason(e.target.value)}
-            placeholder="예: 출장으로 참석 어렵습니다"
+            onChange={e => {
+              setReason(e.target.value.slice(0, REASON_MAX))
+              setError('')
+            }}
+            placeholder="예: 회식, 출장, 개인일정 등"
             rows={2}
-            className="mt-1 w-full rounded-xl border border-gray-300 bg-white p-3 text-base outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
+            maxLength={REASON_MAX}
+            className={`mt-2 min-h-[60px] w-full rounded-xl border bg-white p-3 text-base outline-none focus:ring-2 ${
+              error
+                ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                : 'border-gray-300 focus:border-green-600 focus:ring-green-100'
+            }`}
           />
+          <div className="mt-1 text-right text-xs text-gray-400">
+            {reason.length}/{REASON_MAX}
+          </div>
         </div>
       )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm font-semibold text-red-600">{error}</p>}
+
+      <p className="text-xs text-gray-500">답변 마감: {deadlineText}</p>
 
       <div className="flex gap-2">
         <Button onClick={submit} disabled={pending} className="flex-1">
