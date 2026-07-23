@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
+import { canEvaluateAttendance } from '@/lib/seoul-time'
 
 export const runtime = 'nodejs'
 
@@ -80,6 +81,22 @@ export async function POST(req: Request) {
   }
   if (presentation.presenter_id === me.id) {
     return NextResponse.json({ error: '본인 발표는 평가할 수 없습니다' }, { status: 400 })
+  }
+
+  // 출석/지각한 회원만 평가 가능 — 결석·공결·미체크(레코드 없음)는 403.
+  // 관리자도 동일 규칙(평가 데이터 신뢰도 우선).
+  const { data: myAtt, error: aErr } = await supabase
+    .from('attendances')
+    .select('status')
+    .eq('session_id', session_id)
+    .eq('member_id', me.id)
+    .maybeSingle()
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 })
+  if (!canEvaluateAttendance(myAtt?.status)) {
+    return NextResponse.json(
+      { error: '출석하지 않은 회차는 평가할 수 없습니다' },
+      { status: 403 }
+    )
   }
 
   const { error: upErr } = await supabase

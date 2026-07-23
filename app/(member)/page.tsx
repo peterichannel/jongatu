@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { getAuthedMember } from '@/lib/member-auth'
 import {
   PRE_ATTENDANCE_CUTOFF_MINUTES,
+  canEvaluateAttendance,
   formatMinutesKR,
   seoulDateISO,
   seoulMinutesOfDay
@@ -50,6 +51,7 @@ export default async function HomePage() {
   let myPreAttended = false
   let myAttendanceToday = false
   let evalUnfinishedCount = 0
+  let myEvalAttendable = false
   let unresponded: { id: string; name: string }[] = []
   let myBalance: number | null = null
   let myAttendanceRate: number | null = null
@@ -126,8 +128,8 @@ export default async function HomePage() {
         .filter(s => s.type === 'normal' && !s.is_test)
         .map(s => s.id)
 
-      // ── 3파: 위에서 찾은 회차들에 의존하는 조회 7건
-      const [presRes, myPreRes, myAttRes, targetsRes, myEvalRes, allPreRes, attsRes] =
+      // ── 3파: 위에서 찾은 회차들에 의존하는 조회 8건
+      const [presRes, myPreRes, myAttRes, targetsRes, myEvalRes, allPreRes, attsRes, evalAttRes] =
         await Promise.all([
           nextSession
             ? supabase
@@ -178,12 +180,24 @@ export default async function HomePage() {
                 .select('status')
                 .eq('member_id', me.id)
                 .in('session_id', normalIds)
+            : NONE,
+          // 평가 대상 회차의 내 출석 상태 (출석/지각만 평가 카드 노출)
+          me && evalSession
+            ? supabase
+                .from('attendances')
+                .select('status')
+                .eq('session_id', evalSession.id)
+                .eq('member_id', me.id)
+                .maybeSingle()
             : NONE
         ])
 
       nextPresentations = (presRes.data ?? []) as Presentation[]
       myPreAttended = !!myPreRes.data
       myAttendanceToday = !!myAttRes.data
+      myEvalAttendable = canEvaluateAttendance(
+        (evalAttRes.data as { status: string } | null)?.status
+      )
 
       if (me && evalSession) {
         const targetCount = ((targetsRes.data ?? []) as {
@@ -240,6 +254,7 @@ export default async function HomePage() {
           myPreAttended={myPreAttended}
           myAttendanceToday={myAttendanceToday}
           evalUnfinishedCount={evalUnfinishedCount}
+          myEvalAttendable={myEvalAttendable}
           unresponded={unresponded}
           myBalance={myBalance}
           myAttendanceRate={myAttendanceRate}
@@ -261,6 +276,7 @@ function SignedInView({
   myPreAttended,
   myAttendanceToday,
   evalUnfinishedCount,
+  myEvalAttendable,
   unresponded,
   myBalance,
   myAttendanceRate
@@ -274,6 +290,7 @@ function SignedInView({
   myPreAttended: boolean
   myAttendanceToday: boolean
   evalUnfinishedCount: number
+  myEvalAttendable: boolean
   unresponded: { id: string; name: string }[]
   myBalance: number | null
   myAttendanceRate: number | null
@@ -293,9 +310,10 @@ function SignedInView({
     nowMinutes >= ATTEND_WINDOW_START &&
     nowMinutes < ATTEND_WINDOW_END
 
-  // 평가 카드 노출: 평가 대상 회차 있고, 미완료 발표 있고, 다음 회차 D-2 전
+  // 평가 카드 노출: 평가 대상 회차 있고, 본인이 출석/지각했고, 미완료 발표 있고, 다음 회차 D-2 전
   const showEvalCard =
     !!evalSession &&
+    myEvalAttendable &&
     evalUnfinishedCount > 0 &&
     (daysToNext === null || daysToNext >= 2)
 

@@ -44,6 +44,9 @@ export const STUDY_START_MINUTES = 19 * 60 // 19:00
 // 사전참석 답변 마감 = 스터디 시작 10분 전 (운영진 인원 파악 최소 시간)
 export const PRE_ATTENDANCE_CUTOFF_MINUTES = STUDY_START_MINUTES - 10 // 18:50
 
+// 스터디 종료 예상 시각 = 21:00 KST. 평가 노출/제출의 하한(진행 중 평가 방지).
+export const STUDY_END_MINUTES = 21 * 60 // 21:00
+
 // 자정 기준 분 → '오후 6시 50분'
 export function formatMinutesKR(minutes: number): string {
   const h = Math.floor(minutes / 60)
@@ -65,6 +68,20 @@ export function isPreAttendanceOpen(sessionDate: string, now: Date = new Date())
   if (sessionDate > today) return true
   if (sessionDate < today) return false
   return seoulMinutesOfDay(now) < PRE_ATTENDANCE_CUTOFF_MINUTES
+}
+
+// 해당 회차 평가가 가능한 시점인지 — 스터디 종료(21:00 KST) 이후.
+// 지난 회차는 항상 열려 있고, 당일 회차는 21:00 이후에만 열린다(진행 중 평가 방지).
+export function isEvaluationOpen(sessionDate: string, now: Date = new Date()): boolean {
+  const today = seoulDateISO(now)
+  if (sessionDate < today) return true
+  if (sessionDate > today) return false
+  return seoulMinutesOfDay(now) >= STUDY_END_MINUTES
+}
+
+// 출석/지각한 회원만 평가할 수 있다. 결석·공결·미체크(레코드 없음)는 제외.
+export function canEvaluateAttendance(status: string | null | undefined): boolean {
+  return status === 'present' || status === 'late'
 }
 
 // 'YYYY-MM-DD' 에 days를 더한 KST 날짜 ISO. days 가 음수면 빼는 효과.

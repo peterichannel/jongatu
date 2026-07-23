@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-07-23
+
+### 평가는 출석/지각한 회원만 가능 — 결석자 평가 방지
+- 그동안 홈 "이번주 평가하기" 카드가 **출석 여부와 무관하게** 떠서, 결석·미체크 회원도 스터디를 안 듣고 평가할 수 있었다 → 평가 데이터 신뢰도 문제.
+- 노출/접근 조건: 해당 회차 본인 `attendances.status` 가 **`present`(출석) 또는 `late`(지각)** 일 때만. `absent`(결석)·`excused`(공결)·**미체크(레코드 없음)** 는 전부 제외. 관리자도 동일 규칙(예외 없음).
+- `lib/seoul-time.ts`: `canEvaluateAttendance(status)` 판정 헬퍼 + `STUDY_END_MINUTES`(21:00)·`isEvaluationOpen(date)`(스터디 종료 후에만 평가) 추가.
+- **홈**(`app/(member)/page.tsx`): 3파 조회에 평가 대상 회차의 내 출석 상태 1건 추가 → `showEvalCard` 에 `myEvalAttendable` 게이트. 조건 안 맞으면 카드만 조용히 숨김(옵션 A, 별도 안내 문구 없음).
+- **평가 페이지**(`app/(member)/evaluation/page.tsx`): 직접 URL 접근 시에도 검증 — 대상 회차를 "발표 있음 + `isEvaluationOpen`" 으로 좁히고, 출석/지각이 아니면 **"출석 정보가 없어 평가할 수 없습니다"** 안내 + [홈으로]. 발표 조회와 출석 조회는 병렬.
+- **API 서버 검증**(`app/api/evaluations/route.ts` POST): upsert 직전 본인 출석 상태 확인 → 아니면 **403 `"출석하지 않은 회차는 평가할 수 없습니다"`**. UI를 우회한 직접 호출도 차단.
+- 관리자의 **평가 결과 조회** 화면은 그대로(작성 권한만 출석 조건 적용).
+
 ## 2026-07-22
 
 ### 사전참석 마감 시각 변경 — 회차 전날 자정 → 회차 당일 18:50 KST
